@@ -1,0 +1,222 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+ // schema.prisma
+
+model User {
+  id            String        @id @default(cuid())
+  email         String        @unique
+  passwordHash  String?
+  name          String?
+  avatarUrl     String?
+  createdAt     DateTime      @default(now())
+
+  memberships   Membership[]
+}
+
+model Organization {
+  id            String        @id @default(cuid())
+  name          String
+  createdAt     DateTime      @default(now())
+
+  memberships   Membership[]
+  projects      Project[]
+  clients       Client[]
+  quotes        Quote[]
+  invoices      Invoice[]
+  activityLogs  ActivityLog[]
+  attachments   Attachment[]
+  notes         ProjectNote[]
+}
+
+model Membership {
+  id             String        @id @default(cuid())
+  role           Role          @default(OWNER)
+  user           User          @relation(fields: [userId], references: [id])
+  userId         String
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  organizationId String
+
+  @@unique([userId, organizationId])
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model Client {
+  id             String        @id @default(cuid())
+  name           String
+  email          String?
+  phone          String?
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  organizationId String
+  projects       Project[]
+  createdAt      DateTime      @default(now())
+}
+
+model Project {
+  id             String        @id @default(cuid())
+  title          String
+  stage          Stage         @default(LEAD)
+  portalToken    String?       @unique
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  organizationId String
+  client         Client?       @relation(fields: [clientId], references: [id])
+  clientId       String?
+  quotes         Quote[]
+  invoices       Invoice[]
+  activityLogs  ActivityLog[]
+  attachments   Attachment[]
+  notes         ProjectNote[]
+  createdAt      DateTime      @default(now())
+}
+
+enum Stage {
+  LEAD
+  QUOTED
+  BOOKED
+  IN_PROGRESS
+  DELIVERED
+  PAID
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+model Quote {
+  id             String        @id @default(cuid())
+  title          String
+  status         QuoteStatus   @default(DRAFT)
+  totalAmount    Int           @default(0)
+  validUntil     DateTime?
+  terms          String?
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  organizationId String
+  project        Project       @relation(fields: [projectId], references: [id])
+  projectId      String
+  items          QuoteItem[]
+  invoices       Invoice[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model QuoteItem {
+  id          String   @id @default(cuid())
+  description String
+  quantity    Int      @default(1)
+  unitPrice   Int
+  amount      Int
+  quote       Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  quoteId     String
+}
+
+enum InvoiceStatus {
+  DRAFT
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+}
+
+model Invoice {
+  id             String         @id @default(cuid())
+  invoiceNumber  String
+  status         InvoiceStatus  @default(UNPAID)
+  totalAmount    Int
+  amountPaid     Int            @default(0)
+  dueDate        DateTime?
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  organizationId String
+  project        Project        @relation(fields: [projectId], references: [id])
+  projectId      String
+  quote          Quote?         @relation(fields: [quoteId], references: [id])
+  quoteId        String?
+  items          InvoiceItem[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model InvoiceItem {
+  id          String   @id @default(cuid())
+  description String
+  quantity    Int      @default(1)
+  unitPrice   Int
+  amount      Int
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoiceId   String
+}
+
+enum ActivityType {
+  PROJECT_CREATED
+  STAGE_CHANGED
+  QUOTE_CREATED
+  QUOTE_ACCEPTED
+  PAYMENT_RECEIVED
+  INVOICE_CREATED
+}
+
+model ActivityLog {
+  id             String        @id @default(cuid())
+  type           ActivityType
+  description    String
+  metadata       String?
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  organizationId String
+  project        Project?      @relation(fields: [projectId], references: [id])
+  projectId      String?
+  createdAt      DateTime      @default(now())
+}
+
+enum AttachmentType {
+  DELIVERABLE
+  BRIEF
+  CONTRACT
+  GENERAL
+}
+
+model Attachment {
+  id              String          @id @default(cuid())
+  name            String
+  url             String
+  type            AttachmentType  @default(GENERAL)
+  isClientVisible Boolean         @default(true)
+  organization    Organization    @relation(fields: [organizationId], references: [id])
+  organizationId  String
+  project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId       String
+  createdAt       DateTime        @default(now())
+}
+
+model ProjectNote {
+  id              String        @id @default(cuid())
+  content         String
+  authorName      String?
+  isPinned        Boolean       @default(false)
+  organization    Organization  @relation(fields: [organizationId], references: [id])
+  organizationId  String
+  project         Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId       String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
