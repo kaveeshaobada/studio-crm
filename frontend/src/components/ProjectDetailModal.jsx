@@ -721,3 +721,6 @@ export default function ProjectDetailModal({ project, onClose, onProjectUpdated 
         </div>
     );
 }
+        </div >
+    );
+}

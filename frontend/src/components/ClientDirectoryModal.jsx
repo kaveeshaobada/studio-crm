@@ -133,3 +133,17 @@ export default function ClientDirectoryModal({ onClose, onClientAdded }) {
         </div>
     );
 }
+{ client.phone && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Phone size={13} /> {client.phone}</span> }
+                                    </div >
+                                </div >
+    <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', background: 'var(--bg-main)', padding: '0.2rem 0.6rem', borderRadius: '12px' }}>
+        Active Client
+    </span>
+                            </div >
+                        ))}
+                    </div >
+                )}
+            </div >
+        </div >
+    );
+}

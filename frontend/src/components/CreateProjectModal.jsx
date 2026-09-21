@@ -324,3 +324,28 @@ export default function CreateProjectModal({ onClose, onProjectCreated }) {
         </div>
     );
 }
+
+{/* Submit button aligned to right matching Image 1 */ }
+<div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.6rem' }}>
+    <button
+        type="submit"
+        disabled={submitting}
+        style={{
+            background: '#000000',
+            color: '#ffffff',
+            fontWeight: '700',
+            padding: '0.7rem 1.8rem',
+            borderRadius: '8px',
+            fontSize: '0.88rem',
+            border: 'none',
+            cursor: submitting ? 'not-allowed' : 'pointer',
+        }}
+    >
+        {submitting ? 'Creating...' : 'Create project'}
+    </button>
+</div>
+                </form >
+            </div >
+        </div >
+    );
+}
