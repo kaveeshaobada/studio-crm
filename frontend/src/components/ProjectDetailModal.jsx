@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { updateProjectStage } from '../api/projects';
 import { fetchQuotes } from '../api/quotes';
 import { fetchInvoices, recordPayment } from '../api/invoices';
@@ -36,32 +36,55 @@ export default function ProjectDetailModal({ project, onClose, onProjectUpdated 
     const [paymentAmount, setPaymentAmount] = useState('');
     const [payingInvoiceId, setPayingInvoiceId] = useState(null);
 
-    useEffect(() => {
-        if (project?.id) {
-            loadAllProjectData();
-        }
-    }, [project.id]);
+    const projectId = project?.id;
 
-    async function loadAllProjectData() {
-        setLoadingData(true);
-        setTabError(null);
+    const loadAllProjectData = useCallback(async () => {
+        if (!projectId) return;
         try {
             const [quotesData, invoicesData, attachmentsData, notesData] = await Promise.all([
-                fetchQuotes(project.id).catch(() => []),
-                fetchInvoices(project.id).catch(() => []),
-                fetchAttachments(project.id).catch(() => []),
-                fetchNotes(project.id).catch(() => [])
+                fetchQuotes(projectId).catch(() => []),
+                fetchInvoices(projectId).catch(() => []),
+                fetchAttachments(projectId).catch(() => []),
+                fetchNotes(projectId).catch(() => [])
             ]);
             setQuotes(quotesData);
             setInvoices(invoicesData);
             setAttachments(attachmentsData);
             setNotes(notesData);
-        } catch (err) {
+        } catch {
             setTabError('Failed to load project details');
         } finally {
             setLoadingData(false);
         }
-    }
+    }, [projectId]);
+
+    useEffect(() => {
+        if (!projectId) return;
+        let isMounted = true;
+        Promise.all([
+            fetchQuotes(projectId).catch(() => []),
+            fetchInvoices(projectId).catch(() => []),
+            fetchAttachments(projectId).catch(() => []),
+            fetchNotes(projectId).catch(() => [])
+        ]).then(([quotesData, invoicesData, attachmentsData, notesData]) => {
+            if (isMounted) {
+                setQuotes(quotesData);
+                setInvoices(invoicesData);
+                setAttachments(attachmentsData);
+                setNotes(notesData);
+                setLoadingData(false);
+            }
+        }).catch(() => {
+            if (isMounted) {
+                setTabError('Failed to load project details');
+                setLoadingData(false);
+            }
+        });
+        return () => {
+            isMounted = false;
+        };
+    }, [projectId]);
+
 
     async function handleStageChange(newStage) {
         setUpdatingStage(true);
@@ -69,12 +92,13 @@ export default function ProjectDetailModal({ project, onClose, onProjectUpdated 
             await updateProjectStage(project.id, newStage);
             setCurrentStage(newStage);
             if (onProjectUpdated) onProjectUpdated(project.id, newStage);
-        } catch (err) {
+        } catch {
             alert('Failed to update project stage');
         } finally {
             setUpdatingStage(false);
         }
     }
+
 
     const copyPortalLink = () => {
         if (!project.portalToken) return;
@@ -113,7 +137,7 @@ export default function ProjectDetailModal({ project, onClose, onProjectUpdated 
         try {
             await deleteAttachment(id);
             setAttachments(attachments.filter(a => a.id !== id));
-        } catch (err) {
+        } catch {
             alert('Failed to delete asset');
         }
     }
@@ -124,7 +148,7 @@ export default function ProjectDetailModal({ project, onClose, onProjectUpdated 
         if (!newNoteContent.trim()) return;
         setSubmittingNote(true);
         try {
-            const created = await createNote({
+            await createNote({
                 content: newNoteContent,
                 isPinned: newNotePinned,
                 projectId: project.id
@@ -145,7 +169,7 @@ export default function ProjectDetailModal({ project, onClose, onProjectUpdated 
             await togglePinNote(id);
             const updatedNotes = await fetchNotes(project.id);
             setNotes(updatedNotes);
-        } catch (err) {
+        } catch {
             alert('Failed to update note pin');
         }
     }
@@ -155,7 +179,7 @@ export default function ProjectDetailModal({ project, onClose, onProjectUpdated 
         try {
             await deleteNote(id);
             setNotes(notes.filter(n => n.id !== id));
-        } catch (err) {
+        } catch {
             alert('Failed to delete note');
         }
     }
@@ -721,6 +745,4 @@ export default function ProjectDetailModal({ project, onClose, onProjectUpdated 
         </div>
     );
 }
-        </div >
-    );
-}
+

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { fetchClients, createClient } from '../api/clients';
+import { Mail, Phone, Plus, X } from 'lucide-react';
 
 export default function ClientDirectoryModal({ onClose, onClientAdded }) {
     const [clients, setClients] = useState([]);
@@ -12,15 +13,21 @@ export default function ClientDirectoryModal({ onClose, onClientAdded }) {
     const [submitting, setSubmitting] = useState(false);
 
     useEffect(() => {
-        loadClients();
+
+        let isMounted = true;
+        fetchClients()
+            .then((data) => {
+                if (isMounted) setClients(data);
+            })
+            .finally(() => {
+                if (isMounted) setLoading(false);
+            });
+        return () => {
+            isMounted = false;
+        };
     }, []);
 
-    const loadClients = () => {
-        setLoading(true);
-        fetchClients()
-            .then(setClients)
-            .finally(() => setLoading(false));
-    };
+
 
     const handleCreateClient = async (e) => {
         e.preventDefault();
@@ -54,19 +61,21 @@ export default function ClientDirectoryModal({ onClose, onClientAdded }) {
                         <h2>Client Directory</h2>
                         <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{clients.length} Registered Studio Clients</span>
                     </div>
-                    <button className="btn-ghost" onClick={onClose}>&times;</button>
+                    <button className="btn-ghost" onClick={onClose} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0.4rem' }}>
+                        <X size={18} />
+                    </button>
                 </div>
 
                 {/* Top Action & Search Bar */}
                 <div style={{ display: 'flex', gap: '0.8rem', marginBottom: '1.2rem', flexWrap: 'wrap' }}>
                     <input
-                        placeholder="🔍 Search clients by name or email..."
+                        placeholder="Search clients by name or email..."
                         style={{ flex: 1 }}
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
-                    <button className="btn-primary" onClick={() => setShowAddForm(!showAddForm)}>
-                        {showAddForm ? 'Cancel' : '+ Add Client'}
+                    <button className="btn-primary" onClick={() => setShowAddForm(!showAddForm)} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                        {showAddForm ? 'Cancel' : <><Plus size={15} /> Add Client</>}
                     </button>
                 </div>
 
@@ -118,8 +127,16 @@ export default function ClientDirectoryModal({ onClose, onClientAdded }) {
                                 <div>
                                     <strong style={{ fontSize: '1rem', color: 'var(--text-main)', display: 'block' }}>{client.name}</strong>
                                     <div style={{ display: 'flex', gap: '1rem', fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                                        {client.email && <span>✉️ {client.email}</span>}
-                                        {client.phone && <span>📞 {client.phone}</span>}
+                                        {client.email && (
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                                <Mail size={13} /> {client.email}
+                                            </span>
+                                        )}
+                                        {client.phone && (
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                                <Phone size={13} /> {client.phone}
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
                                 <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', background: 'var(--bg-main)', padding: '0.2rem 0.6rem', borderRadius: '12px' }}>
@@ -133,17 +150,4 @@ export default function ClientDirectoryModal({ onClose, onClientAdded }) {
         </div>
     );
 }
-{ client.phone && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Phone size={13} /> {client.phone}</span> }
-                                    </div >
-                                </div >
-    <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', background: 'var(--bg-main)', padding: '0.2rem 0.6rem', borderRadius: '12px' }}>
-        Active Client
-    </span>
-                            </div >
-                        ))}
-                    </div >
-                )}
-            </div >
-        </div >
-    );
-}
+

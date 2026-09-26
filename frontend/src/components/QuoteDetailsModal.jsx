@@ -23,7 +23,7 @@ export default function QuoteDetailsModal({ project, onClose, onCreateQuoteClick
             setQuotes((prev) =>
                 prev.map((q) => (q.id === quoteId ? { ...q, status: updated.status } : q))
             );
-        } catch (err) {
+        } catch {
             alert('Failed to update quote status');
         }
     };
@@ -138,26 +138,3 @@ export default function QuoteDetailsModal({ project, onClose, onCreateQuoteClick
     );
 }
 
-const modalOverlayStyle = {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1000,
-};
-
-const modalContentStyle = {
-    background: '#fff',
-    color: '#000',
-    padding: '1.5rem',
-    borderRadius: '6px',
-    maxWidth: '700px',
-    width: '90%',
-    maxHeight: '90vh',
-    overflowY: 'auto',
-};

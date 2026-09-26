@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { fetchNotes, createNote, togglePinNote, deleteNote } from '../api/notes';
 
 export default function ProjectNotesModal({ project, onClose }) {
@@ -11,24 +11,38 @@ export default function ProjectNotesModal({ project, onClose }) {
     const [isPinned, setIsPinned] = useState(false);
     const [submitting, setSubmitting] = useState(false);
 
-    useEffect(() => {
-        if (project?.id) {
-            loadNotes();
-        }
-    }, [project]);
+    const projectId = project?.id;
 
-    async function loadNotes() {
-        setLoading(true);
-        setError(null);
+    const loadNotes = useCallback(async () => {
+        if (!projectId) return;
         try {
-            const data = await fetchNotes(project.id);
+            const data = await fetchNotes(projectId);
             setNotes(data);
         } catch (err) {
             setError(err.response?.data?.error || err.message);
         } finally {
             setLoading(false);
         }
-    }
+    }, [projectId]);
+
+    useEffect(() => {
+        if (!projectId) return;
+        let isMounted = true;
+        fetchNotes(projectId)
+            .then((data) => {
+                if (isMounted) setNotes(data);
+            })
+            .catch((err) => {
+                if (isMounted) setError(err.response?.data?.error || err.message);
+            })
+            .finally(() => {
+                if (isMounted) setLoading(false);
+            });
+        return () => {
+            isMounted = false;
+        };
+    }, [projectId]);
+
 
     async function handleCreate(e) {
         e.preventDefault();
@@ -37,7 +51,7 @@ export default function ProjectNotesModal({ project, onClose }) {
         setSubmitting(true);
         setError(null);
         try {
-            const newNote = await createNote({
+            await createNote({
                 content,
                 isPinned,
                 projectId: project.id
@@ -47,6 +61,7 @@ export default function ProjectNotesModal({ project, onClose }) {
             await loadNotes();
             setContent('');
             setIsPinned(false);
+
         } catch (err) {
             setError(err.response?.data?.error || err.message);
         } finally {

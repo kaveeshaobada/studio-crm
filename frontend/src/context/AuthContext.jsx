@@ -1,24 +1,25 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState } from 'react';
 import api from '../api/axios';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-    const [user, setUser] = useState(null);
-    const [organizationId, setOrganizationId] = useState(null);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
+    const [user, setUser] = useState(() => {
         const token = localStorage.getItem('token');
         const storedUser = localStorage.getItem('user');
-        const storedOrgId = localStorage.getItem('organizationId');
-
-        if (token && storedUser && storedOrgId) {
-            setUser(JSON.parse(storedUser));
-            setOrganizationId(storedOrgId);
+        if (token && storedUser) {
+            try {
+                return JSON.parse(storedUser);
+            } catch {
+                return null;
+            }
         }
-        setLoading(false);
-    }, []);
+        return null;
+    });
+    const [organizationId, setOrganizationId] = useState(() => {
+        return localStorage.getItem('organizationId') || null;
+    });
+    const [loading] = useState(false);
 
     const login = async (email, password) => {
         const res = await api.post('/auth/login', { email, password });
@@ -51,6 +52,7 @@ export function AuthProvider({ children }) {
     );
 }
 
+/* eslint-disable-next-line react-refresh/only-export-components */
 export function useAuth() {
     return useContext(AuthContext);
 }

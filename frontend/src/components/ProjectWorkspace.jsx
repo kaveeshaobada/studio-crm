@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { updateProjectStage } from '../api/projects';
 import { fetchQuotes } from '../api/quotes';
-import { fetchInvoices, recordPayment } from '../api/invoices';
-import { fetchAttachments, createAttachment, deleteAttachment } from '../api/attachments';
-import { fetchNotes, createNote, togglePinNote, deleteNote } from '../api/notes';
+import { fetchInvoices } from '../api/invoices';
+import { fetchAttachments } from '../api/attachments';
+import { fetchNotes } from '../api/notes';
 import CreateQuoteModal from './CreateQuoteModal';
 
 const STAGES = [
@@ -26,7 +26,6 @@ export default function ProjectWorkspace({ project, onClose, onProjectUpdated })
     const [invoices, setInvoices] = useState([]);
     const [attachments, setAttachments] = useState([]);
     const [notes, setNotes] = useState([]);
-    const [loadingData, setLoadingData] = useState(true);
 
     // Form & Input States
     const [messageInput, setMessageInput] = useState('');
@@ -34,29 +33,47 @@ export default function ProjectWorkspace({ project, onClose, onProjectUpdated })
     const [tags, setTags] = useState(['Wedding', 'Client portal active']);
     const [tagInput, setTagInput] = useState('');
 
-    useEffect(() => {
-        if (project?.id) {
-            loadAllProjectData();
-        }
-    }, [project.id]);
+    const projectId = project?.id;
 
-    async function loadAllProjectData() {
-        setLoadingData(true);
+    const loadAllProjectData = useCallback(async () => {
+        if (!projectId) return;
         try {
             const [quotesData, invoicesData, attachmentsData, notesData] = await Promise.all([
-                fetchQuotes(project.id).catch(() => []),
-                fetchInvoices(project.id).catch(() => []),
-                fetchAttachments(project.id).catch(() => []),
-                fetchNotes(project.id).catch(() => [])
+                fetchQuotes(projectId).catch(() => []),
+                fetchInvoices(projectId).catch(() => []),
+                fetchAttachments(projectId).catch(() => []),
+                fetchNotes(projectId).catch(() => [])
             ]);
             setQuotes(quotesData);
             setInvoices(invoicesData);
             setAttachments(attachmentsData);
             setNotes(notesData);
-        } finally {
-            setLoadingData(false);
+        } catch {
+            // ignore
         }
-    }
+    }, [projectId]);
+
+    useEffect(() => {
+        if (!projectId) return;
+        let isMounted = true;
+        Promise.all([
+            fetchQuotes(projectId).catch(() => []),
+            fetchInvoices(projectId).catch(() => []),
+            fetchAttachments(projectId).catch(() => []),
+            fetchNotes(projectId).catch(() => [])
+        ]).then(([quotesData, invoicesData, attachmentsData, notesData]) => {
+            if (isMounted) {
+                setQuotes(quotesData);
+                setInvoices(invoicesData);
+                setAttachments(attachmentsData);
+                setNotes(notesData);
+            }
+        }).catch(() => {});
+        return () => {
+            isMounted = false;
+        };
+    }, [projectId]);
+
 
     async function handleStageChange(newStage) {
         setUpdatingStage(true);
@@ -64,12 +81,13 @@ export default function ProjectWorkspace({ project, onClose, onProjectUpdated })
             await updateProjectStage(project.id, newStage);
             setCurrentStage(newStage);
             if (onProjectUpdated) onProjectUpdated(project.id, newStage);
-        } catch (err) {
+        } catch {
             alert('Failed to update project stage');
         } finally {
             setUpdatingStage(false);
         }
     }
+
 
     const copyPortalLink = () => {
         if (!project.portalToken) return;

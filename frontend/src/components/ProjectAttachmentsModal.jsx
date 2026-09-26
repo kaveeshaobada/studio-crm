@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { fetchAttachments, createAttachment, deleteAttachment } from '../api/attachments';
 
-export default function ProjectAttachmentsModal({ project, token, onClose }) {
+export default function ProjectAttachmentsModal({ project, onClose }) {
     const [attachments, setAttachments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -13,24 +13,27 @@ export default function ProjectAttachmentsModal({ project, token, onClose }) {
     const [isClientVisible, setIsClientVisible] = useState(true);
     const [submitting, setSubmitting] = useState(false);
 
-    useEffect(() => {
-        if (project?.id) {
-            loadAttachments();
-        }
-    }, [project]);
+    const projectId = project?.id;
 
-    async function loadAttachments() {
-        setLoading(true);
-        setError(null);
-        try {
-            const data = await fetchAttachments(project.id);
-            setAttachments(data);
-        } catch (err) {
-            setError(err.response?.data?.error || err.message);
-        } finally {
-            setLoading(false);
-        }
-    }
+    useEffect(() => {
+        if (!projectId) return;
+        let isMounted = true;
+        fetchAttachments(projectId)
+            .then((data) => {
+                if (isMounted) setAttachments(data);
+            })
+            .catch((err) => {
+                if (isMounted) setError(err.response?.data?.error || err.message);
+            })
+            .finally(() => {
+                if (isMounted) setLoading(false);
+            });
+        return () => {
+            isMounted = false;
+        };
+    }, [projectId]);
+
+
 
     async function handleCreate(e) {
         e.preventDefault();
