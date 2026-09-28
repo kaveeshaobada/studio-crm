@@ -1,7 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { fetchProjects, updateProjectStage } from '../api/projects';
-import { DndContext, closestCorners, useDroppable, PointerSensor, KeyboardSensor, useSensor, useSensors } from '@dnd-kit/core';
+import {
+    DndContext,
+    closestCorners,
+    pointerWithin,
+    rectIntersection,
+    useDroppable,
+    PointerSensor,
+    KeyboardSensor,
+    useSensor,
+    useSensors,
+    DragOverlay,
+    defaultDropAnimationSideEffects,
+} from '@dnd-kit/core';
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import AnalyticsPanel from '../components/AnalyticsPanel';
@@ -24,7 +36,8 @@ import {
     BarChart3,
     User,
     LifeBuoy,
-    Lock,
+    PanelLeftClose,
+    PanelLeftOpen,
     Gem,
     Bell,
     Sparkles,
@@ -33,7 +46,6 @@ import {
     ChevronDown,
     ChevronUp,
     ChevronRight,
-    ChevronLeft,
     FolderPlus,
     UserPlus,
     Receipt,
@@ -110,7 +122,7 @@ const INITIAL_KANBAN_PROJECTS = [
     },
 ];
 
-function Column({ stageInfo, projects, onSelectProject, isGroupStart }) {
+function Column({ stageInfo, projects, onSelectProject, isGroupStart, isTargeted }) {
     const { setNodeRef } = useDroppable({ id: stageInfo.key });
 
     return (
@@ -121,10 +133,12 @@ function Column({ stageInfo, projects, onSelectProject, isGroupStart }) {
                 flex: '0 0 260px',
                 display: 'flex',
                 flexDirection: 'column',
+                height: '100%',
+                minHeight: 0,
             }}
         >
             {/* Stage Group Badge (Opportunities vs Projects) */}
-            <div style={{ minHeight: '24px', marginBottom: '0.45rem' }}>
+            <div style={{ minHeight: '24px', marginBottom: '0.45rem', flexShrink: 0 }}>
                 {isGroupStart && (
                     <span
                         style={{
@@ -143,7 +157,7 @@ function Column({ stageInfo, projects, onSelectProject, isGroupStart }) {
             </div>
 
             {/* Column Header */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', padding: '0.1rem 0.2rem 0.5rem 0.2rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', padding: '0.1rem 0.2rem 0.5rem 0.2rem', flexShrink: 0 }}>
                 <div style={{
                     width: '3px',
                     height: '14px',
@@ -163,14 +177,20 @@ function Column({ stageInfo, projects, onSelectProject, isGroupStart }) {
             <div
                 ref={setNodeRef}
                 style={{
-                    background: '#f1f3f5',
+                    background: isTargeted ? '#e8edf2' : '#f1f3f5',
                     borderRadius: '12px',
                     padding: '8px',
-                    minHeight: '520px',
+                    flex: 1,
+                    minHeight: 0,
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '0.65rem',
-                    border: '1px solid #e5e7eb',
+                    border: isTargeted ? '1px solid #818cf8' : '1px solid #e5e7eb',
+                    outline: isTargeted ? '2px dotted #6366f1' : '2px dotted transparent',
+                    outlineOffset: '-2px',
+                    transition: 'outline-color 0.22s ease, border-color 0.22s ease, background-color 0.22s ease',
+                    overflowY: 'auto',
+                    scrollbarWidth: 'thin',
                 }}
             >
                 <SortableContext
@@ -196,16 +216,17 @@ function Card({ project, onSelectProject }) {
     });
 
     const style = {
-        background: '#ffffff',
-        border: isDragging ? '1px solid #4f46e5' : '1px solid #e5e7eb',
+        background: isDragging ? '#f8fafc' : '#ffffff',
+        border: isDragging ? '1px dashed #cbd5e1' : '1px solid #e5e7eb',
         borderRadius: '10px',
         padding: '1rem 1.1rem',
-        transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: isDragging ? 0.6 : 1,
-        boxShadow: isDragging ? '0 10px 15px -3px rgba(0, 0, 0, 0.1)' : '0 1px 2px rgba(0, 0, 0, 0.04)',
-        cursor: 'pointer',
+        transform: isDragging ? undefined : CSS.Transform.toString(transform),
+        transition: isDragging ? undefined : (transition || 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease'),
+        opacity: isDragging ? 0.25 : 1,
+        boxShadow: isDragging ? 'none' : '0 1px 2px rgba(0, 0, 0, 0.04)',
+        cursor: isDragging ? 'grabbing' : 'grab',
         userSelect: 'none',
+        position: 'relative',
     };
 
     const clientName = project.client?.name || project.clientName || 'Miranda Cruz';
@@ -264,6 +285,88 @@ function Card({ project, onSelectProject }) {
     );
 }
 
+function CardOverlay({ project }) {
+    if (!project) return null;
+    const clientName = project.client?.name || project.clientName || 'Miranda Cruz';
+    const leadSource = project.leadSource || 'Unknown';
+    const projectType = project.projectType || project.serviceType || 'Consulting';
+
+    return (
+        <div
+            style={{
+                width: '242px',
+                background: '#ffffff',
+                border: '1px solid #c7d2fe',
+                borderRadius: '10px',
+                padding: '1rem 1.1rem',
+                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(99, 102, 241, 0.15)',
+                cursor: 'grabbing',
+                userSelect: 'none',
+                transform: 'rotate(1.5deg) scale(1.02)',
+                transformOrigin: 'center center',
+            }}
+        >
+            <h4 style={{
+                fontSize: '1rem',
+                fontWeight: '700',
+                color: '#111827',
+                marginBottom: '0.45rem',
+                lineHeight: '1.3',
+            }}>
+                {project.title}
+            </h4>
+
+            {project.dateRange && (
+                <div style={{ fontSize: '0.78rem', color: '#6b7280', marginBottom: '0.4rem', fontWeight: '500' }}>
+                    Date: <span style={{ color: '#374151' }}>{project.dateRange}</span>
+                </div>
+            )}
+
+            <div style={{ fontSize: '0.78rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                <div>
+                    <span style={{ color: '#9ca3af', fontWeight: '400' }}>Lead source: </span>
+                    <span style={{ color: '#1f2937', fontWeight: '600' }}>{leadSource}</span>
+                </div>
+                <div>
+                    <span style={{ color: '#9ca3af', fontWeight: '400' }}>Project type: </span>
+                    <span style={{ color: '#1f2937', fontWeight: '600' }}>{projectType}</span>
+                </div>
+                <div>
+                    <span style={{ color: '#9ca3af', fontWeight: '400' }}>Contacts: </span>
+                    <span style={{ color: '#1f2937', fontWeight: '600' }}>{clientName}</span>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+const dropAnimationConfig = {
+    sideEffects: defaultDropAnimationSideEffects({
+        styles: {
+            active: {
+                opacity: '0.25',
+            },
+        },
+    }),
+    duration: 240,
+    easing: 'cubic-bezier(0.2, 0, 0, 1)',
+};
+
+const kanbanCollisionDetection = (args) => {
+    // 1. First priority: Check if pointer is within any droppable (column grey box or card)
+    const pointerCollisions = pointerWithin(args);
+    if (pointerCollisions && pointerCollisions.length > 0) {
+        return pointerCollisions;
+    }
+    // 2. Second priority: rect intersection
+    const rectCollisions = rectIntersection(args);
+    if (rectCollisions && rectCollisions.length > 0) {
+        return rectCollisions;
+    }
+    // 3. Fallback: closest corners
+    return closestCorners(args);
+};
+
 export default function Dashboard() {
     const { logout } = useAuth();
     const [projects, setProjects] = useState([]);
@@ -320,11 +423,49 @@ export default function Dashboard() {
     const sensors = useSensors(
         useSensor(PointerSensor, {
             activationConstraint: {
-                distance: 8,
+                distance: 5,
             },
         }),
         useSensor(KeyboardSensor)
     );
+
+    const [activeId, setActiveId] = useState(null);
+    const [overColumnId, setOverColumnId] = useState(null);
+
+    const activeProject = useMemo(
+        () => (activeId ? projects.find((p) => p.id === activeId) : null),
+        [activeId, projects]
+    );
+
+    const handleDragStart = (event) => {
+        setActiveId(event.active.id);
+    };
+
+    const handleDragOver = (event) => {
+        const { over } = event;
+        if (!over) {
+            setOverColumnId(null);
+            return;
+        }
+
+        const overId = over.id;
+        if (STAGES.some((s) => s.key === overId)) {
+            setOverColumnId(overId);
+            return;
+        }
+
+        const overProject = projects.find((p) => p.id === overId);
+        if (overProject) {
+            setOverColumnId(overProject.stage);
+        } else {
+            setOverColumnId(null);
+        }
+    };
+
+    const handleDragCancel = () => {
+        setActiveId(null);
+        setOverColumnId(null);
+    };
 
     const loadProjects = () => {
         fetchProjects()
@@ -385,6 +526,9 @@ export default function Dashboard() {
 
     function handleDragEnd(event) {
         const { active, over } = event;
+        setActiveId(null);
+        setOverColumnId(null);
+
         if (!over) return;
 
         const projectId = active.id;
@@ -466,7 +610,7 @@ export default function Dashboard() {
     }
 
     return (
-        <div style={{ width: '100%', minHeight: '100vh', display: 'flex', background: '#ffffff', position: 'relative' }}>
+        <div style={{ width: '100%', height: '100vh', display: 'flex', background: '#ffffff', position: 'relative', overflow: 'hidden' }}>
             {/* Sidebar Flow Spacer (keeps the workspace layout stable when pinned) */}
             <div
                 style={{
@@ -490,239 +634,245 @@ export default function Dashboard() {
                     background: '#000000',
                     display: 'flex',
                     flexDirection: 'column',
-                    padding: '0.9rem 0 1rem 0',
+                    padding: '1rem 10px',
                     transition: 'width 0.28s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.28s ease',
-                    boxShadow: (!isPinned && isHovered) ? '6px 0 25px rgba(0, 0, 0, 0.5)' : 'none',
+                    boxShadow: (!isPinned && isHovered) ? '6px 0 25px rgba(0, 0, 0, 0.45)' : 'none',
                     zIndex: 50,
                     overflowY: 'auto',
                     overflowX: 'hidden',
                     willChange: 'width',
                 }}
             >
-                {/* Top Header Row: Logo & Action Button */}
+                {/* Top Row: Brand Logo + Action Button (Lock Expand or Minimize) */}
                 <div style={{
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'space-between',
+                    justifyContent: isExpanded ? 'space-between' : 'center',
                     width: '100%',
+                    position: 'relative',
                     height: '36px',
-                    padding: '0 10px',
                     marginBottom: '0.8rem',
+                    flexShrink: 0,
                 }}>
-                    {/* Brand Logo Container (Centered on X=30px axis when minimized) */}
                     <div style={{
                         width: '40px',
                         minWidth: '40px',
                         height: '36px',
                         display: 'flex',
                         flexDirection: 'column',
-                        alignItems: 'center',
+                        alignItems: isExpanded ? 'flex-start' : 'center',
                         justifyContent: 'center',
+                        paddingLeft: isExpanded ? '4px' : '0',
                         color: '#ffffff',
                         fontWeight: '900',
-                        fontSize: '0.78rem',
+                        fontSize: '0.74rem',
                         lineHeight: '1.05',
                         letterSpacing: '0.04em',
                         cursor: 'pointer',
                         userSelect: 'none',
-                        flexShrink: 0,
+                        transition: 'all 0.2s ease',
                     }} title="Studio CRM">
                         <span>HY</span>
                         <span>BK</span>
                     </div>
 
-                    {/* Prominent Action Button: Lock Expand (Hovered) or Minimize (Pinned) */}
-                    {isExpanded && (
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            opacity: isExpanded ? 1 : 0,
-                            transition: 'opacity 0.2s ease',
-                        }}>
+                    {/* Action Button: Expand / Collapse Control */}
+                    <div style={{
+                        position: 'absolute',
+                        right: '4px',
+                        opacity: isExpanded ? 1 : 0,
+                        transform: isExpanded ? 'translateX(0)' : 'translateX(6px)',
+                        pointerEvents: isExpanded ? 'auto' : 'none',
+                        transition: 'opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                    }}>
+                        <button
+                            onClick={isPinned ? handleMinimize : handleLockExpand}
+                            style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: '#9ca3af',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '6px',
+                                padding: 0,
+                                transition: 'color 0.18s ease, background 0.18s ease',
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.color = '#ffffff';
+                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.color = '#9ca3af';
+                                e.currentTarget.style.background = 'transparent';
+                            }}
+                            title={isPinned ? 'Collapse sidebar' : 'Lock sidebar open'}
+                        >
                             {isPinned ? (
-                                <button
-                                    onClick={handleMinimize}
-                                    style={{
-                                        background: '#2563eb',
-                                        border: '1px solid #3b82f6',
-                                        color: '#ffffff',
-                                        cursor: 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        width: '30px',
-                                        height: '30px',
-                                        borderRadius: '6px',
-                                        boxShadow: '0 2px 8px rgba(37, 99, 235, 0.4)',
-                                        transition: 'all 0.18s ease',
-                                    }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.background = '#1d4ed8';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = '#2563eb';
-                                    }}
-                                    title="Minimize sidebar"
-                                >
-                                    <ChevronLeft size={18} strokeWidth={2.5} />
-                                </button>
+                                <PanelLeftClose size={18} strokeWidth={2} />
                             ) : (
-                                <button
-                                    onClick={handleLockExpand}
-                                    style={{
-                                        background: 'rgba(255, 255, 255, 0.18)',
-                                        border: '1px solid rgba(255, 255, 255, 0.35)',
-                                        color: '#ffffff',
-                                        cursor: 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        width: '30px',
-                                        height: '30px',
-                                        borderRadius: '6px',
-                                        transition: 'all 0.18s ease',
-                                    }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.3)';
-                                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.5)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.18)';
-                                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.35)';
-                                    }}
-                                    title="Lock sidebar expanded"
-                                >
-                                    <Lock size={15} strokeWidth={2.2} />
-                                </button>
+                                <PanelLeftOpen size={18} strokeWidth={2} />
                             )}
-                        </div>
-                    )}
+                        </button>
+                    </div>
                 </div>
 
-                {/* Onboarding progress card */}
-                <div style={{ padding: '0 10px', width: '100%', marginBottom: '0.8rem' }}>
-                    {isExpanded ? (
-                        <div style={{
-                            padding: '0.65rem 0.75rem',
+                {/* Onboarding progress card (Fixed 64px height in both states to eliminate any vertical layout shift) */}
+                <div style={{
+                    width: '100%',
+                    height: '64px',
+                    marginBottom: '0.8rem',
+                    position: 'relative',
+                    flexShrink: 0,
+                }}>
+                    {/* Expanded view */}
+                    <div
+                        style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            height: '100%',
+                            padding: '0.55rem 0.75rem',
                             borderRadius: '8px',
                             background: 'rgba(255, 255, 255, 0.06)',
                             cursor: 'pointer',
-                            width: '100%',
-                            transition: 'background 0.2s ease',
-                        }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.45rem' }}>
-                                <span style={{ color: '#ffffff', fontSize: '0.8rem', fontWeight: '600', whiteSpace: 'nowrap' }}>Set up your account</span>
-                                <ChevronRight size={13} color="#9ca3af" />
-                            </div>
-                            <div style={{ width: '100%', height: '3px', background: 'rgba(255, 255, 255, 0.12)', borderRadius: '2px', overflow: 'hidden', marginBottom: '0.35rem' }}>
-                                <div style={{ width: '28%', height: '100%', background: '#10b981', borderRadius: '2px' }} />
-                            </div>
-                            <span style={{ color: '#9ca3af', fontSize: '0.72rem' }}>2/7 completed</span>
+                            boxSizing: 'border-box',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'center',
+                            opacity: isExpanded ? 1 : 0,
+                            transform: isExpanded ? 'scale(1)' : 'scale(0.96)',
+                            pointerEvents: isExpanded ? 'auto' : 'none',
+                            transition: 'opacity 0.22s ease, transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
+                            overflow: 'hidden',
+                        }}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
+                            <span style={{ color: '#ffffff', fontSize: '0.78rem', fontWeight: '600', whiteSpace: 'nowrap' }}>Set up your account</span>
+                            <ChevronRight size={13} color="#9ca3af" />
                         </div>
-                    ) : (
-                        <div style={{
-                            padding: '0.45rem 0.2rem',
+                        <div style={{ width: '100%', height: '3px', background: 'rgba(255, 255, 255, 0.12)', borderRadius: '2px', overflow: 'hidden', marginBottom: '5px' }}>
+                            <div style={{ width: '28%', height: '100%', background: '#10b981', borderRadius: '2px' }} />
+                        </div>
+                        <span style={{ color: '#9ca3af', fontSize: '0.7rem' }}>2/7 completed</span>
+                    </div>
+
+                    {/* Collapsed view */}
+                    <div
+                        style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            height: '100%',
                             borderRadius: '8px',
                             background: 'rgba(255, 255, 255, 0.06)',
                             display: 'flex',
                             flexDirection: 'column',
                             alignItems: 'center',
-                            gap: '0.3rem',
+                            justifyContent: 'center',
+                            gap: '4px',
                             cursor: 'pointer',
-                            width: '40px',
-                            margin: '0 auto',
-                        }} title="Setup: 2/7 completed">
-                            <ChevronRight size={12} color="#9ca3af" />
-                            <div style={{ width: '28px', height: '3px', background: 'rgba(255, 255, 255, 0.12)', borderRadius: '2px', overflow: 'hidden' }}>
-                                <div style={{ width: '28%', height: '100%', background: '#10b981', borderRadius: '2px' }} />
-                            </div>
-                            <span style={{ color: '#9ca3af', fontSize: '0.68rem', fontWeight: '600' }}>2/7</span>
+                            opacity: isExpanded ? 0 : 1,
+                            transform: isExpanded ? 'scale(0.9)' : 'scale(1)',
+                            pointerEvents: isExpanded ? 'none' : 'auto',
+                            transition: 'opacity 0.2s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                            boxSizing: 'border-box',
+                        }}
+                        title="Setup: 2/7 completed"
+                    >
+                        <ChevronRight size={12} color="#9ca3af" />
+                        <div style={{ width: '26px', height: '3px', background: 'rgba(255, 255, 255, 0.12)', borderRadius: '2px', overflow: 'hidden' }}>
+                            <div style={{ width: '28%', height: '100%', background: '#10b981', borderRadius: '2px' }} />
                         </div>
-                    )}
+                        <span style={{ color: '#9ca3af', fontSize: '0.65rem', fontWeight: '600' }}>2/7</span>
+                    </div>
                 </div>
 
                 {/* Vertical Navigation Menu */}
                 <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', width: '100%' }}>
                     {/* Setup */}
-                    <div style={{ padding: '0 10px', width: '100%' }}>
-                        <button
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                width: '100%',
-                                height: '40px',
-                                background: 'transparent',
-                                border: 'none',
-                                color: '#9ca3af',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                padding: 0,
-                                transition: 'background 0.2s ease, color 0.2s ease',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
-                            title="Setup"
-                        >
-                            <div style={{ width: '40px', minWidth: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <Wand2 size={20} strokeWidth={1.9} />
-                            </div>
-                            <span style={{
-                                whiteSpace: 'nowrap',
-                                fontSize: '0.84rem',
-                                fontWeight: '500',
-                                opacity: isExpanded ? 1 : 0,
-                                transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
-                                transition: 'opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
-                                pointerEvents: isExpanded ? 'auto' : 'none',
-                                overflow: 'hidden',
-                            }}>Setup</span>
-                        </button>
-                    </div>
+                    <button
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-start',
+                            gap: '10px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#9ca3af',
+                            padding: '0.45rem 8px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '0.82rem',
+                            width: '100%',
+                            transition: 'background 0.18s ease, color 0.18s ease',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
+                        title="Setup"
+                    >
+                        <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <Wand2 size={18} />
+                        </div>
+                        <span style={{
+                            whiteSpace: 'nowrap',
+                            opacity: isExpanded ? 1 : 0,
+                            transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
+                            transition: isExpanded ? 'opacity 0.2s ease 0.06s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1) 0.06s' : 'opacity 0.14s ease, transform 0.14s ease',
+                            pointerEvents: isExpanded ? 'auto' : 'none',
+                            overflow: 'hidden',
+                        }}>Setup</span>
+                    </button>
 
                     {/* Home */}
-                    <div style={{ padding: '0 10px', width: '100%' }}>
-                        <button
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                width: '100%',
-                                height: '40px',
-                                background: 'transparent',
-                                border: 'none',
-                                color: '#9ca3af',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                padding: 0,
-                                transition: 'background 0.2s ease, color 0.2s ease',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
-                            title="Home"
-                        >
-                            <div style={{ width: '40px', minWidth: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <Home size={20} strokeWidth={1.9} />
-                            </div>
-                            <span style={{
-                                whiteSpace: 'nowrap',
-                                fontSize: '0.84rem',
-                                fontWeight: '500',
-                                opacity: isExpanded ? 1 : 0,
-                                transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
-                                transition: 'opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
-                                pointerEvents: isExpanded ? 'auto' : 'none',
-                                overflow: 'hidden',
-                            }}>Home</span>
-                        </button>
-                    </div>
+                    <button
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-start',
+                            gap: '10px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#9ca3af',
+                            padding: '0.45rem 8px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '0.82rem',
+                            width: '100%',
+                            transition: 'background 0.18s ease, color 0.18s ease',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
+                        title="Home"
+                    >
+                        <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <Home size={18} />
+                        </div>
+                        <span style={{
+                            whiteSpace: 'nowrap',
+                            opacity: isExpanded ? 1 : 0,
+                            transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
+                            transition: isExpanded ? 'opacity 0.2s ease 0.06s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1) 0.06s' : 'opacity 0.14s ease, transform 0.14s ease',
+                            pointerEvents: isExpanded ? 'auto' : 'none',
+                            overflow: 'hidden',
+                        }}>Home</span>
+                    </button>
 
-                    {/* Projects (Expanded Accordion Box vs Minimized Tile) */}
+                    {/* Projects (Expanded Accordion vs Minimized Standard Icon) */}
                     {isExpanded ? (
                         <div style={{
-                            margin: '0.2rem 10px',
-                            border: '1px solid rgba(255, 255, 255, 0.22)',
-                            borderRadius: '8px',
-                            background: '#181818',
-                            overflow: 'hidden',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.25rem',
+                            width: '100%',
                         }}>
                             <button
                                 style={{
@@ -730,533 +880,563 @@ export default function Dashboard() {
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'space-between',
-                                    height: '40px',
+                                    padding: '0.45rem 8px',
                                     background: 'transparent',
                                     border: 'none',
-                                    color: '#ffffff',
+                                    color: activeTab === 'pipeline' ? '#ffffff' : '#9ca3af',
+                                    fontSize: '0.82rem',
+                                    fontWeight: activeTab === 'pipeline' ? '600' : '400',
                                     cursor: 'pointer',
-                                    padding: '0 10px 0 0',
+                                    borderRadius: '6px',
+                                    transition: 'background 0.18s ease, color 0.18s ease',
                                 }}
-                                onClick={() => setProjectsSubmenuOpen(!projectsSubmenuOpen)}
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.color = '#ffffff';
+                                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.color = activeTab === 'pipeline' ? '#ffffff' : '#9ca3af';
+                                    e.currentTarget.style.background = 'transparent';
+                                }}
+                                onClick={() => {
+                                    setProjectsSubmenuOpen(!projectsSubmenuOpen);
+                                    if (activeTab !== 'pipeline') {
+                                        setActiveTab('pipeline');
+                                    }
+                                }}
+                                title="Projects"
                             >
-                                <div style={{ display: 'flex', alignItems: 'center' }}>
-                                    <div style={{ width: '40px', minWidth: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                        <Briefcase size={21} strokeWidth={2} color="#ffffff" />
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                        <Briefcase size={18} strokeWidth={2} />
                                     </div>
-                                    <span style={{ fontSize: '0.84rem', fontWeight: '600', whiteSpace: 'nowrap' }}>Projects</span>
+                                    <span style={{
+                                        whiteSpace: 'nowrap',
+                                        fontSize: '0.82rem',
+                                    }}>Projects</span>
                                 </div>
-                                {projectsSubmenuOpen ? <ChevronUp size={14} color="#9ca3af" /> : <ChevronDown size={14} color="#9ca3af" />}
+                                {projectsSubmenuOpen ? (
+                                    <ChevronUp size={13} strokeWidth={2} />
+                                ) : (
+                                    <ChevronDown size={13} strokeWidth={2} />
+                                )}
                             </button>
 
                             {projectsSubmenuOpen && (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', padding: '0.1rem 0.4rem 0.4rem 2.4rem' }}>
+                                <div style={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '0.25rem',
+                                    width: '100%',
+                                    boxSizing: 'border-box',
+                                }}>
                                     <button
                                         style={{
                                             display: 'flex',
                                             alignItems: 'center',
+                                            justifyContent: 'flex-start',
                                             width: '100%',
-                                            textAlign: 'left',
-                                            padding: '0.35rem 0.6rem',
+                                            padding: '0.45rem 8px',
                                             borderRadius: '6px',
-                                            background: activeTab === 'pipeline' ? 'rgba(255, 255, 255, 0.14)' : 'transparent',
+                                            background: activeTab === 'pipeline' ? '#2b2c2d' : 'transparent',
                                             border: 'none',
-                                            color: '#ffffff',
-                                            fontSize: '0.8rem',
-                                            fontWeight: '600',
+                                            color: activeTab === 'pipeline' ? '#ffffff' : '#9ca3af',
+                                            fontSize: '0.82rem',
+                                            fontWeight: activeTab === 'pipeline' ? '600' : '400',
                                             cursor: 'pointer',
                                             whiteSpace: 'nowrap',
+                                            textAlign: 'left',
+                                            transition: 'background 0.15s ease, color 0.15s ease',
+                                            boxSizing: 'border-box',
                                         }}
                                         onClick={() => setActiveTab('pipeline')}
+                                        onMouseEnter={(e) => {
+                                            if (activeTab !== 'pipeline') {
+                                                e.currentTarget.style.color = '#ffffff';
+                                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                                            }
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            if (activeTab !== 'pipeline') {
+                                                e.currentTarget.style.color = '#9ca3af';
+                                                e.currentTarget.style.background = 'transparent';
+                                            }
+                                        }}
                                     >
-                                        Pipeline
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            <div style={{ width: '24px', minWidth: '24px', flexShrink: 0 }} />
+                                            <span>Pipeline</span>
+                                        </div>
                                     </button>
                                     <button
                                         style={{
                                             display: 'flex',
                                             alignItems: 'center',
+                                            justifyContent: 'flex-start',
                                             width: '100%',
-                                            textAlign: 'left',
-                                            padding: '0.35rem 0.6rem',
+                                            padding: '0.45rem 8px',
                                             borderRadius: '6px',
                                             background: 'transparent',
                                             border: 'none',
                                             color: '#9ca3af',
-                                            fontSize: '0.8rem',
-                                            fontWeight: '500',
+                                            fontSize: '0.82rem',
+                                            fontWeight: '400',
                                             cursor: 'pointer',
                                             whiteSpace: 'nowrap',
+                                            textAlign: 'left',
+                                            transition: 'background 0.15s ease, color 0.15s ease',
+                                            boxSizing: 'border-box',
+                                        }}
+                                        onMouseEnter={(e) => {
+                                            e.currentTarget.style.color = '#ffffff';
+                                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            e.currentTarget.style.color = '#9ca3af';
+                                            e.currentTarget.style.background = 'transparent';
                                         }}
                                     >
-                                        All files
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            <div style={{ width: '24px', minWidth: '24px', flexShrink: 0 }} />
+                                            <span>All files</span>
+                                        </div>
                                     </button>
                                 </div>
                             )}
                         </div>
                     ) : (
-                        <div style={{ padding: '0 10px', width: '100%', display: 'flex', justifyContent: 'center' }}>
-                            <button
-                                style={{
-                                    background: activeTab === 'pipeline' ? '#262626' : 'transparent',
-                                    border: activeTab === 'pipeline' ? '1px solid rgba(255, 255, 255, 0.16)' : '1px solid transparent',
-                                    color: activeTab === 'pipeline' ? '#ffffff' : '#9ca3af',
-                                    width: '40px',
-                                    height: '40px',
-                                    borderRadius: '8px',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    transition: 'all 0.2s ease',
-                                    padding: 0,
-                                }}
-                                title="Projects"
-                                onClick={() => setActiveTab('pipeline')}
-                            >
-                                <Briefcase size={21} strokeWidth={2} />
-                            </button>
-                        </div>
+                        <button
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'flex-start',
+                                gap: '10px',
+                                background: activeTab === 'pipeline' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+                                border: 'none',
+                                color: activeTab === 'pipeline' ? '#ffffff' : '#9ca3af',
+                                padding: '0.45rem 8px',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                fontSize: '0.82rem',
+                                width: '100%',
+                                transition: 'background 0.18s ease, color 0.18s ease',
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.color = '#ffffff';
+                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.color = activeTab === 'pipeline' ? '#ffffff' : '#9ca3af';
+                                e.currentTarget.style.background = activeTab === 'pipeline' ? 'rgba(255, 255, 255, 0.08)' : 'transparent';
+                            }}
+                            title="Projects"
+                            onClick={() => setActiveTab('pipeline')}
+                        >
+                            <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <Briefcase size={18} />
+                            </div>
+                        </button>
                     )}
 
                     {/* Inbox */}
-                    <div style={{ padding: '0 10px', width: '100%' }}>
-                        <button
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                width: '100%',
-                                height: '40px',
-                                background: 'transparent',
-                                border: 'none',
-                                color: '#9ca3af',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                padding: 0,
-                                transition: 'background 0.2s ease, color 0.2s ease',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
-                            title="Inbox"
-                        >
-                            <div style={{ width: '40px', minWidth: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <Inbox size={20} strokeWidth={1.9} />
-                            </div>
-                            <span style={{
-                                whiteSpace: 'nowrap',
-                                fontSize: '0.84rem',
-                                fontWeight: '500',
-                                opacity: isExpanded ? 1 : 0,
-                                transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
-                                transition: 'opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
-                                pointerEvents: isExpanded ? 'auto' : 'none',
-                                overflow: 'hidden',
-                            }}>Inbox</span>
-                        </button>
-                    </div>
+                    <button
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-start',
+                            gap: '10px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#9ca3af',
+                            padding: '0.45rem 8px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '0.82rem',
+                            width: '100%',
+                            transition: 'background 0.18s ease, color 0.18s ease',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
+                        title="Inbox"
+                    >
+                        <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <Inbox size={18} />
+                        </div>
+                        <span style={{
+                            whiteSpace: 'nowrap',
+                            opacity: isExpanded ? 1 : 0,
+                            transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
+                            transition: isExpanded ? 'opacity 0.2s ease 0.06s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1) 0.06s' : 'opacity 0.14s ease, transform 0.14s ease',
+                            pointerEvents: isExpanded ? 'auto' : 'none',
+                            overflow: 'hidden',
+                        }}>Inbox</span>
+                    </button>
 
                     {/* Galleries */}
-                    <div style={{ padding: '0 10px', width: '100%' }}>
-                        <button
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                width: '100%',
-                                height: '40px',
-                                background: 'transparent',
-                                border: 'none',
-                                color: '#9ca3af',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                padding: 0,
-                                transition: 'background 0.2s ease, color 0.2s ease',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
-                            title="Galleries"
-                        >
-                            <div style={{ width: '40px', minWidth: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <Image size={20} strokeWidth={1.9} />
-                            </div>
-                            <span style={{
-                                whiteSpace: 'nowrap',
-                                fontSize: '0.84rem',
-                                fontWeight: '500',
-                                opacity: isExpanded ? 1 : 0,
-                                transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
-                                transition: 'opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
-                                pointerEvents: isExpanded ? 'auto' : 'none',
-                                overflow: 'hidden',
-                            }}>Galleries</span>
-                        </button>
-                    </div>
+                    <button
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-start',
+                            gap: '10px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#9ca3af',
+                            padding: '0.45rem 8px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '0.82rem',
+                            width: '100%',
+                            transition: 'background 0.18s ease, color 0.18s ease',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
+                        title="Galleries"
+                    >
+                        <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <Image size={18} />
+                        </div>
+                        <span style={{
+                            whiteSpace: 'nowrap',
+                            opacity: isExpanded ? 1 : 0,
+                            transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
+                            transition: isExpanded ? 'opacity 0.2s ease 0.06s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1) 0.06s' : 'opacity 0.14s ease, transform 0.14s ease',
+                            pointerEvents: isExpanded ? 'auto' : 'none',
+                            overflow: 'hidden',
+                        }}>Galleries</span>
+                    </button>
 
                     {/* Forms */}
-                    <div style={{ padding: '0 10px', width: '100%' }}>
-                        <button
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                width: '100%',
-                                height: '40px',
-                                background: 'transparent',
-                                border: 'none',
-                                color: '#9ca3af',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                padding: 0,
-                                transition: 'background 0.2s ease, color 0.2s ease',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
-                            title="Forms"
-                        >
-                            <div style={{ width: '40px', minWidth: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <FileText size={20} strokeWidth={1.9} />
-                            </div>
-                            <span style={{
-                                whiteSpace: 'nowrap',
-                                fontSize: '0.84rem',
-                                fontWeight: '500',
-                                opacity: isExpanded ? 1 : 0,
-                                transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
-                                transition: 'opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
-                                pointerEvents: isExpanded ? 'auto' : 'none',
-                                overflow: 'hidden',
-                            }}>Forms</span>
-                        </button>
-                    </div>
+                    <button
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-start',
+                            gap: '10px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#9ca3af',
+                            padding: '0.45rem 8px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '0.82rem',
+                            width: '100%',
+                            transition: 'background 0.18s ease, color 0.18s ease',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
+                        title="Forms"
+                    >
+                        <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <FileText size={18} />
+                        </div>
+                        <span style={{
+                            whiteSpace: 'nowrap',
+                            opacity: isExpanded ? 1 : 0,
+                            transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
+                            transition: isExpanded ? 'opacity 0.2s ease 0.06s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1) 0.06s' : 'opacity 0.14s ease, transform 0.14s ease',
+                            pointerEvents: isExpanded ? 'auto' : 'none',
+                            overflow: 'hidden',
+                        }}>Forms</span>
+                    </button>
 
                     {/* Calendar */}
-                    <div style={{ padding: '0 10px', width: '100%' }}>
-                        <button
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                width: '100%',
-                                height: '40px',
-                                background: 'transparent',
-                                border: 'none',
-                                color: '#9ca3af',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                padding: 0,
-                                transition: 'background 0.2s ease, color 0.2s ease',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
-                            title="Calendar"
-                        >
-                            <div style={{ width: '40px', minWidth: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <Calendar size={20} strokeWidth={1.9} />
-                            </div>
-                            <span style={{
-                                whiteSpace: 'nowrap',
-                                fontSize: '0.84rem',
-                                fontWeight: '500',
-                                opacity: isExpanded ? 1 : 0,
-                                transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
-                                transition: 'opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
-                                pointerEvents: isExpanded ? 'auto' : 'none',
-                                overflow: 'hidden',
-                            }}>Calendar</span>
-                        </button>
-                    </div>
+                    <button
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-start',
+                            gap: '10px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#9ca3af',
+                            padding: '0.45rem 8px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '0.82rem',
+                            width: '100%',
+                            transition: 'background 0.18s ease, color 0.18s ease',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
+                        title="Calendar"
+                    >
+                        <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <Calendar size={18} />
+                        </div>
+                        <span style={{
+                            whiteSpace: 'nowrap',
+                            opacity: isExpanded ? 1 : 0,
+                            transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
+                            transition: isExpanded ? 'opacity 0.2s ease 0.06s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1) 0.06s' : 'opacity 0.14s ease, transform 0.14s ease',
+                            pointerEvents: isExpanded ? 'auto' : 'none',
+                            overflow: 'hidden',
+                        }}>Calendar</span>
+                    </button>
 
                     {/* Services */}
-                    <div style={{ padding: '0 10px', width: '100%' }}>
-                        <button
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                width: '100%',
-                                height: '40px',
-                                background: 'transparent',
-                                border: 'none',
-                                color: '#9ca3af',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                padding: 0,
-                                transition: 'background 0.2s ease, color 0.2s ease',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
-                            title="Services"
-                        >
-                            <div style={{ width: '40px', minWidth: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <Tag size={20} strokeWidth={1.9} />
-                            </div>
-                            <span style={{
-                                whiteSpace: 'nowrap',
-                                fontSize: '0.84rem',
-                                fontWeight: '500',
-                                opacity: isExpanded ? 1 : 0,
-                                transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
-                                transition: 'opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
-                                pointerEvents: isExpanded ? 'auto' : 'none',
-                                overflow: 'hidden',
-                            }}>Services</span>
-                        </button>
-                    </div>
+                    <button
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-start',
+                            gap: '10px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#9ca3af',
+                            padding: '0.45rem 8px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '0.82rem',
+                            width: '100%',
+                            transition: 'background 0.18s ease, color 0.18s ease',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
+                        title="Services"
+                    >
+                        <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <Tag size={18} />
+                        </div>
+                        <span style={{
+                            whiteSpace: 'nowrap',
+                            opacity: isExpanded ? 1 : 0,
+                            transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
+                            transition: isExpanded ? 'opacity 0.2s ease 0.06s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1) 0.06s' : 'opacity 0.14s ease, transform 0.14s ease',
+                            pointerEvents: isExpanded ? 'auto' : 'none',
+                            overflow: 'hidden',
+                        }}>Services</span>
+                    </button>
 
                     {/* Templates */}
-                    <div style={{ padding: '0 10px', width: '100%' }}>
-                        <button
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                width: '100%',
-                                height: '40px',
-                                background: 'transparent',
-                                border: 'none',
-                                color: '#9ca3af',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                padding: 0,
-                                transition: 'background 0.2s ease, color 0.2s ease',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
-                            title="Templates"
-                        >
-                            <div style={{ width: '40px', minWidth: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <Layers size={20} strokeWidth={1.9} />
-                            </div>
-                            <span style={{
-                                whiteSpace: 'nowrap',
-                                fontSize: '0.84rem',
-                                fontWeight: '500',
-                                opacity: isExpanded ? 1 : 0,
-                                transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
-                                transition: 'opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
-                                pointerEvents: isExpanded ? 'auto' : 'none',
-                                overflow: 'hidden',
-                            }}>Templates</span>
-                            <div style={{
-                                marginLeft: 'auto',
-                                marginRight: '10px',
-                                opacity: isExpanded ? 1 : 0,
-                                transition: 'opacity 0.2s ease',
-                                pointerEvents: isExpanded ? 'auto' : 'none',
-                                display: 'flex',
-                                alignItems: 'center',
-                            }}>
-                                <ChevronDown size={14} color="#9ca3af" />
-                            </div>
-                        </button>
-                    </div>
+                    <button
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-start',
+                            gap: '10px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#9ca3af',
+                            padding: '0.45rem 8px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '0.82rem',
+                            width: '100%',
+                            transition: 'background 0.18s ease, color 0.18s ease',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
+                        title="Templates"
+                    >
+                        <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <Layers size={18} />
+                        </div>
+                        <span style={{
+                            whiteSpace: 'nowrap',
+                            opacity: isExpanded ? 1 : 0,
+                            transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
+                            transition: isExpanded ? 'opacity 0.2s ease 0.06s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1) 0.06s' : 'opacity 0.14s ease, transform 0.14s ease',
+                            pointerEvents: isExpanded ? 'auto' : 'none',
+                            overflow: 'hidden',
+                        }}>Templates</span>
+                        <div style={{
+                            marginLeft: 'auto',
+                            opacity: isExpanded ? 1 : 0,
+                            transition: 'opacity 0.18s ease',
+                            pointerEvents: isExpanded ? 'auto' : 'none',
+                        }}>
+                            <ChevronDown size={13} color="#9ca3af" />
+                        </div>
+                    </button>
 
                     {/* Finance */}
-                    <div style={{ padding: '0 10px', width: '100%' }}>
-                        <button
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                width: '100%',
-                                height: '40px',
-                                background: 'transparent',
-                                border: 'none',
-                                color: '#9ca3af',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                padding: 0,
-                                transition: 'background 0.2s ease, color 0.2s ease',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
-                            title="Finance"
-                        >
-                            <div style={{ width: '40px', minWidth: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <DollarSign size={20} strokeWidth={1.9} />
-                            </div>
-                            <span style={{
-                                whiteSpace: 'nowrap',
-                                fontSize: '0.84rem',
-                                fontWeight: '500',
-                                opacity: isExpanded ? 1 : 0,
-                                transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
-                                transition: 'opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
-                                pointerEvents: isExpanded ? 'auto' : 'none',
-                                overflow: 'hidden',
-                            }}>Finance</span>
-                            <div style={{
-                                marginLeft: 'auto',
-                                marginRight: '10px',
-                                opacity: isExpanded ? 1 : 0,
-                                transition: 'opacity 0.2s ease',
-                                pointerEvents: isExpanded ? 'auto' : 'none',
-                                display: 'flex',
-                                alignItems: 'center',
-                            }}>
-                                <ChevronDown size={14} color="#9ca3af" />
-                            </div>
-                        </button>
-                    </div>
+                    <button
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-start',
+                            gap: '10px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#9ca3af',
+                            padding: '0.45rem 8px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '0.82rem',
+                            width: '100%',
+                            transition: 'background 0.18s ease, color 0.18s ease',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
+                        title="Finance"
+                    >
+                        <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <DollarSign size={18} />
+                        </div>
+                        <span style={{
+                            whiteSpace: 'nowrap',
+                            opacity: isExpanded ? 1 : 0,
+                            transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
+                            transition: isExpanded ? 'opacity 0.2s ease 0.06s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1) 0.06s' : 'opacity 0.14s ease, transform 0.14s ease',
+                            pointerEvents: isExpanded ? 'auto' : 'none',
+                            overflow: 'hidden',
+                        }}>Finance</span>
+                        <div style={{
+                            marginLeft: 'auto',
+                            opacity: isExpanded ? 1 : 0,
+                            transition: 'opacity 0.18s ease',
+                            pointerEvents: isExpanded ? 'auto' : 'none',
+                        }}>
+                            <ChevronDown size={13} color="#9ca3af" />
+                        </div>
+                    </button>
 
                     {/* Automations */}
-                    <div style={{ padding: '0 10px', width: '100%' }}>
-                        <button
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                width: '100%',
-                                height: '40px',
-                                background: 'transparent',
-                                border: 'none',
-                                color: '#9ca3af',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                padding: 0,
-                                transition: 'background 0.2s ease, color 0.2s ease',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
-                            title="Automations"
-                        >
-                            <div style={{ width: '40px', minWidth: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <Zap size={20} strokeWidth={1.9} />
-                            </div>
-                            <span style={{
-                                whiteSpace: 'nowrap',
-                                fontSize: '0.84rem',
-                                fontWeight: '500',
-                                opacity: isExpanded ? 1 : 0,
-                                transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
-                                transition: 'opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
-                                pointerEvents: isExpanded ? 'auto' : 'none',
-                                overflow: 'hidden',
-                            }}>Automations</span>
-                        </button>
-                    </div>
+                    <button
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-start',
+                            gap: '10px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#9ca3af',
+                            padding: '0.45rem 8px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '0.82rem',
+                            width: '100%',
+                            transition: 'background 0.18s ease, color 0.18s ease',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
+                        title="Automations"
+                    >
+                        <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <Zap size={18} />
+                        </div>
+                        <span style={{
+                            whiteSpace: 'nowrap',
+                            opacity: isExpanded ? 1 : 0,
+                            transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
+                            transition: isExpanded ? 'opacity 0.2s ease 0.06s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1) 0.06s' : 'opacity 0.14s ease, transform 0.14s ease',
+                            pointerEvents: isExpanded ? 'auto' : 'none',
+                            overflow: 'hidden',
+                        }}>Automations</span>
+                    </button>
 
                     {/* Tools */}
-                    <div style={{ padding: '0 10px', width: '100%' }}>
-                        <button
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                width: '100%',
-                                height: '40px',
-                                background: 'transparent',
-                                border: 'none',
-                                color: '#9ca3af',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                padding: 0,
-                                transition: 'background 0.2s ease, color 0.2s ease',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
-                            title="Tools"
-                        >
-                            <div style={{ width: '40px', minWidth: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <Wrench size={20} strokeWidth={1.9} />
-                            </div>
-                            <span style={{
-                                whiteSpace: 'nowrap',
-                                fontSize: '0.84rem',
-                                fontWeight: '500',
-                                opacity: isExpanded ? 1 : 0,
-                                transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
-                                transition: 'opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
-                                pointerEvents: isExpanded ? 'auto' : 'none',
-                                overflow: 'hidden',
-                            }}>Tools</span>
-                            <div style={{
-                                marginLeft: 'auto',
-                                marginRight: '10px',
-                                opacity: isExpanded ? 1 : 0,
-                                transition: 'opacity 0.2s ease',
-                                pointerEvents: isExpanded ? 'auto' : 'none',
-                                display: 'flex',
-                                alignItems: 'center',
-                            }}>
-                                <ChevronDown size={14} color="#9ca3af" />
-                            </div>
-                        </button>
-                    </div>
+                    <button
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-start',
+                            gap: '10px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#9ca3af',
+                            padding: '0.45rem 8px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '0.82rem',
+                            width: '100%',
+                            transition: 'background 0.18s ease, color 0.18s ease',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
+                        title="Tools"
+                    >
+                        <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <Wrench size={18} />
+                        </div>
+                        <span style={{
+                            whiteSpace: 'nowrap',
+                            opacity: isExpanded ? 1 : 0,
+                            transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
+                            transition: isExpanded ? 'opacity 0.2s ease 0.06s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1) 0.06s' : 'opacity 0.14s ease, transform 0.14s ease',
+                            pointerEvents: isExpanded ? 'auto' : 'none',
+                            overflow: 'hidden',
+                        }}>Tools</span>
+                        <div style={{
+                            marginLeft: 'auto',
+                            opacity: isExpanded ? 1 : 0,
+                            transition: 'opacity 0.18s ease',
+                            pointerEvents: isExpanded ? 'auto' : 'none',
+                        }}>
+                            <ChevronDown size={13} color="#9ca3af" />
+                        </div>
+                    </button>
 
                     {/* Reports */}
-                    <div style={{ padding: '0 10px', width: '100%' }}>
-                        <button
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                width: '100%',
-                                height: '40px',
-                                background: activeTab === 'analytics' ? 'rgba(255, 255, 255, 0.12)' : 'transparent',
-                                border: 'none',
-                                color: activeTab === 'analytics' ? '#ffffff' : '#9ca3af',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                padding: 0,
-                                transition: 'background 0.2s ease, color 0.2s ease',
-                            }}
-                            onMouseEnter={(e) => {
-                                if (activeTab !== 'analytics') {
-                                    e.currentTarget.style.color = '#ffffff';
-                                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
-                                }
-                            }}
-                            onMouseLeave={(e) => {
-                                if (activeTab !== 'analytics') {
-                                    e.currentTarget.style.color = '#9ca3af';
-                                    e.currentTarget.style.background = 'transparent';
-                                }
-                            }}
-                            title="Reports"
-                            onClick={() => setActiveTab('analytics')}
-                        >
-                            <div style={{ width: '40px', minWidth: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <BarChart3 size={20} strokeWidth={1.9} />
-                            </div>
-                            <span style={{
-                                whiteSpace: 'nowrap',
-                                fontSize: '0.84rem',
-                                fontWeight: activeTab === 'analytics' ? '600' : '500',
-                                opacity: isExpanded ? 1 : 0,
-                                transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
-                                transition: 'opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
-                                pointerEvents: isExpanded ? 'auto' : 'none',
-                                overflow: 'hidden',
-                            }}>Reports</span>
-                        </button>
-                    </div>
+                    <button
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-start',
+                            gap: '10px',
+                            background: activeTab === 'analytics' ? 'rgba(255, 255, 255, 0.12)' : 'transparent',
+                            border: 'none',
+                            color: activeTab === 'analytics' ? '#ffffff' : '#9ca3af',
+                            padding: '0.45rem 8px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '0.82rem',
+                            width: '100%',
+                            transition: 'background 0.18s ease, color 0.18s ease',
+                        }}
+                        onMouseEnter={(e) => { if (activeTab !== 'analytics') { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; } }}
+                        onMouseLeave={(e) => { if (activeTab !== 'analytics') { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; } }}
+                        title="Reports"
+                        onClick={() => setActiveTab('analytics')}
+                    >
+                        <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <BarChart3 size={18} />
+                        </div>
+                        <span style={{
+                            whiteSpace: 'nowrap',
+                            opacity: isExpanded ? 1 : 0,
+                            transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
+                            transition: isExpanded ? 'opacity 0.2s ease 0.06s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1) 0.06s' : 'opacity 0.14s ease, transform 0.14s ease',
+                            pointerEvents: isExpanded ? 'auto' : 'none',
+                            overflow: 'hidden',
+                        }}>Reports</span>
+                    </button>
 
                     {/* Contacts */}
-                    <div style={{ padding: '0 10px', width: '100%' }}>
-                        <button
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                width: '100%',
-                                height: '40px',
-                                background: 'transparent',
-                                border: 'none',
-                                color: '#9ca3af',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                padding: 0,
-                                transition: 'background 0.2s ease, color 0.2s ease',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
-                            title="Contacts"
-                            onClick={() => setShowClientDirectory(true)}
-                        >
-                            <div style={{ width: '40px', minWidth: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <User size={20} strokeWidth={1.9} />
-                            </div>
-                            <span style={{
-                                whiteSpace: 'nowrap',
-                                fontSize: '0.84rem',
-                                fontWeight: '500',
-                                opacity: isExpanded ? 1 : 0,
-                                transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
-                                transition: 'opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
-                                pointerEvents: isExpanded ? 'auto' : 'none',
-                                overflow: 'hidden',
-                            }}>Contacts</span>
-                        </button>
-                    </div>
+                    <button
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-start',
+                            gap: '10px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#9ca3af',
+                            padding: '0.45rem 8px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '0.82rem',
+                            width: '100%',
+                            transition: 'background 0.18s ease, color 0.18s ease',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
+                        title="Contacts"
+                        onClick={() => setShowClientDirectory(true)}
+                    >
+                        <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <User size={18} />
+                        </div>
+                        <span style={{
+                            whiteSpace: 'nowrap',
+                            opacity: isExpanded ? 1 : 0,
+                            transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
+                            transition: isExpanded ? 'opacity 0.2s ease 0.06s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1) 0.06s' : 'opacity 0.14s ease, transform 0.14s ease',
+                            pointerEvents: isExpanded ? 'auto' : 'none',
+                            overflow: 'hidden',
+                        }}>Contacts</span>
+                    </button>
                 </nav>
 
                 {/* Bottom Section: Resources & Settings */}
@@ -1269,99 +1449,94 @@ export default function Dashboard() {
                     gap: '0.25rem',
                     width: '100%',
                 }}>
-                    {/* Resources */}
-                    <div style={{ padding: '0 10px', width: '100%' }}>
-                        <button
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                width: '100%',
-                                height: '40px',
-                                background: 'transparent',
-                                border: 'none',
-                                color: '#9ca3af',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                padding: 0,
-                                transition: 'background 0.2s ease, color 0.2s ease',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
-                            title="Resources"
-                        >
-                            <div style={{ width: '40px', minWidth: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <LifeBuoy size={20} strokeWidth={1.9} />
-                            </div>
-                            <span style={{
-                                whiteSpace: 'nowrap',
-                                fontSize: '0.84rem',
-                                fontWeight: '500',
-                                opacity: isExpanded ? 1 : 0,
-                                transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
-                                transition: 'opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
-                                pointerEvents: isExpanded ? 'auto' : 'none',
-                                overflow: 'hidden',
-                            }}>Resources</span>
-                        </button>
-                    </div>
+                    <button
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-start',
+                            gap: '10px',
+                            padding: '0.45rem 8px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#9ca3af',
+                            fontSize: '0.82rem',
+                            cursor: 'pointer',
+                            borderRadius: '6px',
+                            width: '100%',
+                            transition: 'background 0.18s ease, color 0.18s ease',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
+                        title="Resources"
+                    >
+                        <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <LifeBuoy size={18} />
+                        </div>
+                        <span style={{
+                            whiteSpace: 'nowrap',
+                            opacity: isExpanded ? 1 : 0,
+                            transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
+                            transition: isExpanded ? 'opacity 0.2s ease 0.06s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1) 0.06s' : 'opacity 0.14s ease, transform 0.14s ease',
+                            pointerEvents: isExpanded ? 'auto' : 'none',
+                            overflow: 'hidden',
+                        }}>Resources</span>
+                    </button>
 
-                    {/* Settings / Account Avatar */}
-                    <div style={{ padding: '0 10px', width: '100%' }}>
-                        <button
-                            onClick={logout}
-                            style={{
+                    <button
+                        onClick={logout}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-start',
+                            gap: '10px',
+                            padding: '0.45rem 8px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#ffffff',
+                            fontSize: '0.82rem',
+                            cursor: 'pointer',
+                            borderRadius: '6px',
+                            width: '100%',
+                            transition: 'background 0.18s ease',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                        title="Account & Settings (Click to Logout)"
+                    >
+                        <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <div style={{
+                                width: '22px',
+                                height: '22px',
+                                borderRadius: '50%',
+                                background: '#0284c7',
+                                color: '#ffffff',
+                                fontSize: '0.7rem',
+                                fontWeight: '700',
                                 display: 'flex',
                                 alignItems: 'center',
-                                width: '100%',
-                                height: '40px',
-                                background: 'transparent',
-                                border: 'none',
-                                color: '#ffffff',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                padding: 0,
-                                transition: 'background 0.2s ease',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                            title="Account & Settings (Click to Logout)"
-                        >
-                            <div style={{ width: '40px', minWidth: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <div style={{
-                                    width: '26px',
-                                    height: '26px',
-                                    borderRadius: '50%',
-                                    background: '#0284c7',
-                                    color: '#ffffff',
-                                    fontSize: '0.74rem',
-                                    fontWeight: '700',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                }}>
-                                    K
-                                </div>
+                                justifyContent: 'center',
+                            }}>
+                                K
                             </div>
-                            <span style={{
-                                whiteSpace: 'nowrap',
-                                fontSize: '0.84rem',
-                                fontWeight: '500',
-                                opacity: isExpanded ? 1 : 0,
-                                transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
-                                transition: 'opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
-                                pointerEvents: isExpanded ? 'auto' : 'none',
-                                overflow: 'hidden',
-                            }}>Settings</span>
-                        </button>
-                    </div>
+                        </div>
+                        <span style={{
+                            whiteSpace: 'nowrap',
+                            opacity: isExpanded ? 1 : 0,
+                            transform: isExpanded ? 'translateX(0)' : 'translateX(-8px)',
+                            transition: isExpanded ? 'opacity 0.2s ease 0.06s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1) 0.06s' : 'opacity 0.14s ease, transform 0.14s ease',
+                            pointerEvents: isExpanded ? 'auto' : 'none',
+                            overflow: 'hidden',
+                        }}>Settings</span>
+                    </button>
                 </div>
             </aside>
 
             {/* Main Workspace Area */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: '#ffffff' }}>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100vh', background: '#ffffff', overflow: 'hidden' }}>
                 {/* Top Header Bar */}
                 <header style={{
                     height: '56px',
+                    flexShrink: 0,
                     background: '#ffffff',
                     borderBottom: '1px solid #f1f3f5',
                     display: 'flex',
@@ -1516,7 +1691,7 @@ export default function Dashboard() {
                 </header>
 
                 {/* Sub-Header / Page Title Area */}
-                <div style={{ padding: '1.5rem 2rem 0.5rem 2rem' }}>
+                <div style={{ padding: '1.25rem 2rem 0.25rem 2rem', flexShrink: 0 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
                         <h1 style={{ fontSize: '1.85rem', fontWeight: '800', color: '#111827', margin: 0, letterSpacing: '-0.02em' }}>
                             Projects
@@ -1617,7 +1792,7 @@ export default function Dashboard() {
                     </div>
 
                     {/* Filter & View Toolbar */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', marginBottom: '1.2rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.85rem', marginBottom: '0.9rem', flexShrink: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', position: 'relative' }}>
                             {/* Sort Popover Button (⇅) */}
                             <div style={{ position: 'relative' }}>
@@ -1800,10 +1975,33 @@ export default function Dashboard() {
                 </div>
 
                 {/* Kanban Main Workspace Grid */}
-                <main style={{ flex: 1, padding: '0 2rem 2rem 2rem', overflowX: 'auto' }}>
+                <main style={{
+                    flex: 1,
+                    minHeight: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    padding: '0 2rem 1.25rem 2rem',
+                    overflowX: 'auto',
+                    overflowY: activeTab === 'pipeline' ? 'hidden' : 'auto',
+                }}>
                     {activeTab === 'pipeline' ? (
-                        <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
-                            <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', minWidth: 'max-content', paddingBottom: '1rem' }}>
+                        <DndContext
+                            sensors={sensors}
+                            collisionDetection={kanbanCollisionDetection}
+                            onDragStart={handleDragStart}
+                            onDragOver={handleDragOver}
+                            onDragEnd={handleDragEnd}
+                            onDragCancel={handleDragCancel}
+                        >
+                            <div style={{
+                                display: 'flex',
+                                gap: '1rem',
+                                minWidth: 'max-content',
+                                flex: 1,
+                                height: '100%',
+                                minHeight: 0,
+                                alignItems: 'stretch',
+                            }}>
                                 {STAGES.map((stageInfo, idx) => {
                                     const colProjects = processedProjects.filter((p) => p.stage === stageInfo.key);
                                     const isGroupStart = idx === 0 || STAGES[idx - 1].group !== stageInfo.group;
@@ -1815,13 +2013,19 @@ export default function Dashboard() {
                                             projects={colProjects}
                                             onSelectProject={(proj) => setActiveProjectDetail(proj)}
                                             isGroupStart={isGroupStart}
+                                            isTargeted={Boolean(activeId && overColumnId === stageInfo.key && activeProject?.stage !== stageInfo.key)}
                                         />
                                     );
                                 })}
                             </div>
+                            <DragOverlay dropAnimation={dropAnimationConfig} zIndex={1000}>
+                                {activeProject ? (
+                                    <CardOverlay project={activeProject} />
+                                ) : null}
+                            </DragOverlay>
                         </DndContext>
                     ) : (
-                        <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+                        <div style={{ maxWidth: '1100px', margin: '0 auto', width: '100%' }}>
                             <AnalyticsPanel />
                         </div>
                     )}
