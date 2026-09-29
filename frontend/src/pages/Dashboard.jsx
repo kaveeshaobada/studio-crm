@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { fetchProjects, updateProjectStage } from '../api/projects';
 import {
@@ -20,6 +20,9 @@ import AnalyticsPanel from '../components/AnalyticsPanel';
 import ClientDirectoryModal from '../components/ClientDirectoryModal';
 import CreateProjectModal from '../components/CreateProjectModal';
 import ProjectWorkspace from '../components/ProjectWorkspace';
+import SetupScreen from '../components/SetupScreen';
+import HomeScreen from '../components/HomeScreen';
+import FilesScreen from '../components/FilesScreen';
 import {
     Wand2,
     Home,
@@ -46,6 +49,7 @@ import {
     ChevronDown,
     ChevronUp,
     ChevronRight,
+    ChevronLeft,
     FolderPlus,
     UserPlus,
     Receipt,
@@ -53,6 +57,7 @@ import {
     ArrowUpDown,
     LayoutGrid,
     Columns,
+    ArrowUp,
     X,
 } from 'lucide-react';
 
@@ -90,35 +95,25 @@ const INITIAL_KANBAN_PROJECTS = [
         id: 'p-discovery-21',
         title: '21',
         stage: 'DISCOVERY',
-        dateRange: 'Sep 17, 2026 - Sep 23, 2026',
+        dateRange: 'Thu, Sep 17 - Wed, Sep 23, 2025',
         leadSource: 'Client Referral',
         projectType: 'Music Video',
         clientName: 'Kaveesha Obadakumbura',
+        location: '',
+        description: '',
+        recentActivity: '',
     },
     {
         id: 'p-proposal-test',
         title: 'Test project',
-        stage: 'PROPOSAL',
+        stage: 'KICK_OFF',
+        dateRange: 'TBD',
         leadSource: 'Unknown',
         projectType: 'Wedding',
-        clientName: 'Test User',
-    },
-    {
-        id: 'p-signed-1',
-        title: 'Radiant Renovations',
-        stage: 'CONTRACT_SIGNED',
-        dateRange: 'Oct 01, 2026 - Oct 12, 2026',
-        leadSource: 'Lead form',
-        projectType: 'Commercial Shoot',
-        clientName: 'Hazel Brook',
-    },
-    {
-        id: 'p-signed-2',
-        title: 'Stellar Systems',
-        stage: 'CONTRACT_SIGNED',
-        leadSource: 'Lead form',
-        projectType: 'Corporate Video',
-        clientName: 'Forrest Banks',
+        clientName: 'Test contact',
+        location: '',
+        description: '',
+        recentActivity: '',
     },
 ];
 
@@ -367,11 +362,472 @@ const kanbanCollisionDetection = (args) => {
     return closestCorners(args);
 };
 
+function TableViewIcon({ size = 14, color = 'currentColor' }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
+            <line x1="2" y1="6.5" x2="14" y2="6.5" />
+            <line x1="6.5" y1="2.5" x2="6.5" y2="13.5" />
+        </svg>
+    );
+}
+
+function BoardViewIcon({ size = 14, color = 'currentColor' }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="2.5" width="5.5" height="11" rx="1" />
+            <rect x="9.5" y="2.5" width="4.5" height="7.5" rx="1" />
+        </svg>
+    );
+}
+
+function ActionTooltip({ text, children, position = 'bottom', delay = 150 }) {
+    const [visible, setVisible] = useState(false);
+    const timeoutRef = useRef(null);
+
+    const handleMouseEnter = () => {
+        timeoutRef.current = setTimeout(() => {
+            setVisible(true);
+        }, delay);
+    };
+
+    const handleMouseLeave = () => {
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        setVisible(false);
+    };
+
+    useEffect(() => {
+        return () => {
+            if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        };
+    }, []);
+
+    return (
+        <div
+            style={{ position: 'relative', display: 'inline-flex' }}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+        >
+            {children}
+            {visible && (
+                <div
+                    style={{
+                        position: 'absolute',
+                        ...(position === 'bottom'
+                            ? { top: 'calc(100% + 7px)', left: '50%', transform: 'translateX(-50%)' }
+                            : { bottom: 'calc(100% + 7px)', left: '50%', transform: 'translateX(-50%)' }),
+                        background: '#111827',
+                        color: '#ffffff',
+                        fontSize: '0.72rem',
+                        fontWeight: '500',
+                        padding: '4px 8px',
+                        borderRadius: '5px',
+                        whiteSpace: 'nowrap',
+                        pointerEvents: 'none',
+                        zIndex: 1000,
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)',
+                        animation: 'tooltipFade 0.16s cubic-bezier(0.16, 1, 0.3, 1)',
+                    }}
+                >
+                    {text}
+                    <div
+                        style={{
+                            position: 'absolute',
+                            ...(position === 'bottom'
+                                ? {
+                                    bottom: '100%',
+                                    left: '50%',
+                                    transform: 'translateX(-50%)',
+                                    borderBottom: '4px solid #111827',
+                                    borderLeft: '4px solid transparent',
+                                    borderRight: '4px solid transparent',
+                                }
+                                : {
+                                    top: '100%',
+                                    left: '50%',
+                                    transform: 'translateX(-50%)',
+                                    borderTop: '4px solid #111827',
+                                    borderLeft: '4px solid transparent',
+                                    borderRight: '4px solid transparent',
+                                }),
+                            width: 0,
+                            height: 0,
+                        }}
+                    />
+                </div>
+            )}
+        </div>
+    );
+}
+
+function TableView({
+    allProjects = [],
+    displayedProjects = [],
+    onSelectProject,
+    filterStage,
+    onStageSelect,
+    selectedProjectIds,
+    onToggleSelectProject,
+    onToggleSelectAll,
+}) {
+    const stageCounts = useMemo(() => {
+        const counts = { ALL: allProjects.length };
+        STAGES.forEach((s) => {
+            counts[s.key] = allProjects.filter((p) => p.stage === s.key).length;
+        });
+        return counts;
+    }, [allProjects]);
+
+    const allSelected = displayedProjects.length > 0 && displayedProjects.every((p) => selectedProjectIds.includes(p.id));
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', width: '100%', minHeight: 0 }}>
+            {/* Top Stage Groups Labels */}
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.4rem', paddingLeft: '72px', position: 'relative' }}>
+                <div style={{ width: '38%', display: 'flex', justifyContent: 'flex-start', paddingLeft: '22px' }}>
+                    <span style={{
+                        background: '#ede9fe',
+                        color: '#7c3aed',
+                        fontSize: '0.72rem',
+                        fontWeight: '600',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                    }}>
+                        Opportunities
+                    </span>
+                </div>
+                <div style={{ width: '52%', display: 'flex', justifyContent: 'flex-start', paddingLeft: '32px' }}>
+                    <span style={{
+                        background: '#dcfce7',
+                        color: '#15803d',
+                        fontSize: '0.72rem',
+                        fontWeight: '600',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                    }}>
+                        Projects
+                    </span>
+                </div>
+            </div>
+
+            {/* Chevron Pipeline Stepper Banner */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'stretch',
+                width: '100%',
+                background: '#ffffff',
+                border: '1px solid #e5e7eb',
+                borderRadius: '8px',
+                overflow: 'hidden',
+                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.03)',
+                flexShrink: 0,
+            }}>
+                {/* 2 All Pill */}
+                <button
+                    onClick={() => onStageSelect('ALL')}
+                    style={{
+                        background: '#111827',
+                        color: '#ffffff',
+                        minWidth: '66px',
+                        padding: '6px 14px',
+                        border: 'none',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                        borderRight: '1px solid #374151',
+                    }}
+                    title="View all projects"
+                >
+                    <span style={{ fontSize: '1.25rem', fontWeight: '700', lineHeight: 1.15 }}>
+                        {allProjects.length}
+                    </span>
+                    <span style={{ fontSize: '0.75rem', fontWeight: '500', color: '#cbd5e1' }}>
+                        All
+                    </span>
+                </button>
+
+                {/* 10 Chevron Stage Items */}
+                <div style={{ display: 'flex', flex: 1, minWidth: 0, overflowX: 'auto' }}>
+                    {STAGES.map((stage, idx) => {
+                        const count = stageCounts[stage.key] || 0;
+                        const isFiltered = filterStage === stage.key;
+
+                        let accentColor = '#8b5cf6';
+                        if (stage.key === 'CONTRACT_SIGNED') accentColor = '#c084fc';
+                        else if (stage.group === 'Projects') accentColor = '#10b981';
+                        if (stage.key === 'ARCHIVED') accentColor = '#94a3b8';
+
+                        return (
+                            <button
+                                key={stage.key}
+                                onClick={() => onStageSelect(isFiltered ? 'ALL' : stage.key)}
+                                style={{
+                                    position: 'relative',
+                                    flex: 1,
+                                    minWidth: '88px',
+                                    height: '56px',
+                                    background: isFiltered ? '#eff6ff' : '#ffffff',
+                                    border: 'none',
+                                    borderTop: `3px solid ${accentColor}`,
+                                    borderRight: '1px solid #e5e7eb',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'flex-start',
+                                    justifyContent: 'center',
+                                    padding: '4px 12px 4px 16px',
+                                    cursor: 'pointer',
+                                    transition: 'background-color 0.15s ease',
+                                    outline: 'none',
+                                }}
+                                onMouseEnter={(e) => {
+                                    if (!isFiltered) e.currentTarget.style.backgroundColor = '#f8fafc';
+                                }}
+                                onMouseLeave={(e) => {
+                                    if (!isFiltered) e.currentTarget.style.backgroundColor = '#ffffff';
+                                }}
+                            >
+                                <span style={{
+                                    fontSize: '0.98rem',
+                                    fontWeight: '600',
+                                    color: count > 0 ? '#111827' : '#94a3b8',
+                                    lineHeight: 1.2,
+                                    marginBottom: '2px',
+                                }}>
+                                    {count}
+                                </span>
+                                <span style={{
+                                    fontSize: '0.74rem',
+                                    fontWeight: '500',
+                                    color: '#4b5563',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    maxWidth: '100%',
+                                }}>
+                                    {stage.label}
+                                </span>
+
+                                {/* Chevron Notch Arrow Divider */}
+                                {idx < STAGES.length - 1 && (
+                                    <svg
+                                        style={{
+                                            position: 'absolute',
+                                            right: '-7px',
+                                            top: 0,
+                                            height: '100%',
+                                            width: '8px',
+                                            zIndex: 5,
+                                            pointerEvents: 'none',
+                                        }}
+                                        viewBox="0 0 8 56"
+                                        preserveAspectRatio="none"
+                                    >
+                                        <path d="M0,0 L7,28 L0,56" fill="none" stroke="#e5e7eb" strokeWidth="1.2" />
+                                    </svg>
+                                )}
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
+
+            {/* Items Counter */}
+            <div style={{
+                padding: '0.9rem 0.2rem 0.65rem 0.2rem',
+                fontSize: '0.82rem',
+                fontWeight: '500',
+                color: '#4b5563',
+                flexShrink: 0,
+            }}>
+                {displayedProjects.length} items
+            </div>
+
+            {/* Projects Table Container */}
+            <div style={{
+                background: '#ffffff',
+                border: '1px solid #e5e7eb',
+                borderRadius: '8px',
+                overflowX: 'auto',
+                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.03)',
+                flexShrink: 0,
+            }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '950px' }}>
+                    <thead>
+                        <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                            <th style={{ width: '42px', padding: '10px 14px', textAlign: 'center' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={allSelected}
+                                    onChange={onToggleSelectAll}
+                                    style={{ cursor: 'pointer', borderRadius: '4px', accentColor: '#2563eb' }}
+                                />
+                            </th>
+                            <th style={{ padding: '10px 14px', fontSize: '0.78rem', fontWeight: '500', color: '#6b7280' }}>Name</th>
+                            <th style={{ padding: '10px 14px', fontSize: '0.78rem', fontWeight: '500', color: '#6b7280' }}>Contacts</th>
+                            <th style={{ padding: '10px 14px', fontSize: '0.78rem', fontWeight: '500', color: '#6b7280' }}>Type</th>
+                            <th style={{ padding: '10px 14px', fontSize: '0.78rem', fontWeight: '500', color: '#6b7280' }}>Date</th>
+                            <th style={{ padding: '10px 14px', fontSize: '0.78rem', fontWeight: '500', color: '#6b7280' }}>Location</th>
+                            <th style={{ padding: '10px 14px', fontSize: '0.78rem', fontWeight: '500', color: '#6b7280' }}>Description</th>
+                            <th style={{ padding: '10px 14px', fontSize: '0.78rem', fontWeight: '500', color: '#6b7280' }}>Lead Source</th>
+                            <th style={{ padding: '10px 14px', fontSize: '0.78rem', fontWeight: '500', color: '#6b7280' }}>Recent Activity</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {displayedProjects.length === 0 ? (
+                            <tr>
+                                <td colSpan={9} style={{ padding: '2.5rem 1rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
+                                    No projects in this stage
+                                </td>
+                            </tr>
+                        ) : (
+                            displayedProjects.map((project) => {
+                                const isSelected = selectedProjectIds.includes(project.id);
+                                return (
+                                    <tr
+                                        key={project.id}
+                                        onClick={() => onSelectProject(project)}
+                                        style={{
+                                            borderBottom: '1px solid #f1f5f9',
+                                            background: isSelected ? '#fffdf0' : '#ffffff',
+                                            cursor: 'pointer',
+                                            transition: 'background-color 0.15s ease',
+                                        }}
+                                        onMouseEnter={(e) => {
+                                            if (!isSelected) e.currentTarget.style.backgroundColor = '#f8fafc';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            if (!isSelected) e.currentTarget.style.backgroundColor = '#ffffff';
+                                        }}
+                                    >
+                                        <td
+                                            style={{ width: '42px', padding: '11px 14px', textAlign: 'center' }}
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={isSelected}
+                                                onChange={() => onToggleSelectProject(project.id)}
+                                                style={{ cursor: 'pointer', borderRadius: '4px', accentColor: '#2563eb' }}
+                                            />
+                                        </td>
+                                        <td style={{ padding: '11px 14px', fontSize: '0.84rem', fontWeight: '600', color: '#111827' }}>
+                                            {project.title}
+                                        </td>
+                                        <td style={{ padding: '11px 14px', fontSize: '0.82rem', color: '#374151' }}>
+                                            {project.client?.name || project.clientName || 'Miranda Cruz'}
+                                        </td>
+                                        <td style={{ padding: '11px 14px', fontSize: '0.82rem', color: '#374151' }}>
+                                            {project.projectType || project.serviceType || 'Consulting'}
+                                        </td>
+                                        <td style={{ padding: '11px 14px', fontSize: '0.82rem', color: '#374151', whiteSpace: 'nowrap' }}>
+                                            {project.dateRange || (project.date ? new Date(project.date).toLocaleDateString() : 'TBD')}
+                                        </td>
+                                        <td style={{ padding: '11px 14px', fontSize: '0.82rem', color: '#6b7280' }}>
+                                            {project.location || ''}
+                                        </td>
+                                        <td style={{ padding: '11px 14px', fontSize: '0.82rem', color: '#6b7280' }}>
+                                            {project.description || ''}
+                                        </td>
+                                        <td style={{ padding: '11px 14px', fontSize: '0.82rem', color: '#374151' }}>
+                                            {project.leadSource || 'Unknown'}
+                                        </td>
+                                        <td style={{ padding: '11px 14px', fontSize: '0.82rem', color: '#6b7280' }}>
+                                            {project.recentActivity || ''}
+                                        </td>
+                                    </tr>
+                                );
+                            })
+                        )}
+                    </tbody>
+                </table>
+            </div>
+
+            {/* Pagination Controls */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.75rem',
+                padding: '1.25rem 0',
+                flexShrink: 0,
+            }}>
+                <button
+                    disabled
+                    style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#cbd5e1',
+                        cursor: 'default',
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '4px',
+                    }}
+                >
+                    <ChevronLeft size={16} />
+                </button>
+                <span style={{
+                    background: '#eff6ff',
+                    color: '#2563eb',
+                    fontWeight: '600',
+                    fontSize: '0.8rem',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                }}>
+                    1
+                </span>
+                <button
+                    disabled
+                    style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#cbd5e1',
+                        cursor: 'default',
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '4px',
+                    }}
+                >
+                    <ChevronRight size={16} />
+                </button>
+            </div>
+        </div>
+    );
+}
+
 export default function Dashboard() {
-    const { logout } = useAuth();
+    const { user, logout } = useAuth();
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState('pipeline'); // 'pipeline' | 'analytics'
+    const [activeTab, setActiveTab] = useState('all_files'); // 'all_files' | 'home' | 'setup' | 'pipeline' | 'analytics'
+    const [completedSteps, setCompletedSteps] = useState([2, 6]);
+    const [viewMode, setViewMode] = useState('board'); // 'board' (Wireframe) | 'table' (Kanban)
+    const [selectedProjectIds, setSelectedProjectIds] = useState(['p-proposal-test']);
+    const [showStageMovedFilter, setShowStageMovedFilter] = useState(true);
+
+    const handleToggleStep = (stepId) => {
+        setCompletedSteps((prev) =>
+            prev.includes(stepId) ? prev.filter((id) => id !== stepId) : [...prev, stepId]
+        );
+    };
+
+    const toggleSelectProject = (id) => {
+        setSelectedProjectIds((prev) =>
+            prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+        );
+    };
+
+    const toggleSelectAll = (displayedList) => {
+        const displayedIds = displayedList.map((p) => p.id);
+        const allSelected = displayedIds.length > 0 && displayedIds.every((id) => selectedProjectIds.includes(id));
+        if (allSelected) {
+            setSelectedProjectIds((prev) => prev.filter((id) => !displayedIds.includes(id)));
+        } else {
+            setSelectedProjectIds((prev) => Array.from(new Set([...prev, ...displayedIds])));
+        }
+    };
 
     // Sidebar Pin / Hover state
     const [isPinned, setIsPinned] = useState(() => {
@@ -733,6 +1189,7 @@ export default function Dashboard() {
                 }}>
                     {/* Expanded view */}
                     <div
+                        onClick={() => setActiveTab('setup')}
                         style={{
                             position: 'absolute',
                             top: 0,
@@ -759,13 +1216,14 @@ export default function Dashboard() {
                             <ChevronRight size={13} color="#9ca3af" />
                         </div>
                         <div style={{ width: '100%', height: '3px', background: 'rgba(255, 255, 255, 0.12)', borderRadius: '2px', overflow: 'hidden', marginBottom: '5px' }}>
-                            <div style={{ width: '28%', height: '100%', background: '#10b981', borderRadius: '2px' }} />
+                            <div style={{ width: `${(completedSteps.length / 7) * 100}%`, height: '100%', background: '#10b981', borderRadius: '2px', transition: 'width 0.3s ease' }} />
                         </div>
-                        <span style={{ color: '#9ca3af', fontSize: '0.7rem' }}>2/7 completed</span>
+                        <span style={{ color: '#9ca3af', fontSize: '0.7rem' }}>{completedSteps.length}/7 completed</span>
                     </div>
 
                     {/* Collapsed view */}
                     <div
+                        onClick={() => setActiveTab('setup')}
                         style={{
                             position: 'absolute',
                             top: 0,
@@ -786,13 +1244,13 @@ export default function Dashboard() {
                             transition: 'opacity 0.2s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
                             boxSizing: 'border-box',
                         }}
-                        title="Setup: 2/7 completed"
+                        title={`Setup: ${completedSteps.length}/7 completed`}
                     >
                         <ChevronRight size={12} color="#9ca3af" />
                         <div style={{ width: '26px', height: '3px', background: 'rgba(255, 255, 255, 0.12)', borderRadius: '2px', overflow: 'hidden' }}>
-                            <div style={{ width: '28%', height: '100%', background: '#10b981', borderRadius: '2px' }} />
+                            <div style={{ width: `${(completedSteps.length / 7) * 100}%`, height: '100%', background: '#10b981', borderRadius: '2px', transition: 'width 0.3s ease' }} />
                         </div>
-                        <span style={{ color: '#9ca3af', fontSize: '0.65rem', fontWeight: '600' }}>2/7</span>
+                        <span style={{ color: '#9ca3af', fontSize: '0.65rem', fontWeight: '600' }}>{completedSteps.length}/7</span>
                     </div>
                 </div>
 
@@ -805,9 +1263,10 @@ export default function Dashboard() {
                             alignItems: 'center',
                             justifyContent: 'flex-start',
                             gap: '10px',
-                            background: 'transparent',
+                            background: activeTab === 'setup' ? 'rgba(255, 255, 255, 0.12)' : 'transparent',
                             border: 'none',
-                            color: '#9ca3af',
+                            color: activeTab === 'setup' ? '#ffffff' : '#9ca3af',
+                            fontWeight: activeTab === 'setup' ? '600' : '400',
                             padding: '0.45rem 8px',
                             borderRadius: '6px',
                             cursor: 'pointer',
@@ -815,8 +1274,19 @@ export default function Dashboard() {
                             width: '100%',
                             transition: 'background 0.18s ease, color 0.18s ease',
                         }}
-                        onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
+                        onMouseEnter={(e) => {
+                            if (activeTab !== 'setup') {
+                                e.currentTarget.style.color = '#ffffff';
+                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                            }
+                        }}
+                        onMouseLeave={(e) => {
+                            if (activeTab !== 'setup') {
+                                e.currentTarget.style.color = '#9ca3af';
+                                e.currentTarget.style.background = 'transparent';
+                            }
+                        }}
+                        onClick={() => setActiveTab('setup')}
                         title="Setup"
                     >
                         <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -839,9 +1309,10 @@ export default function Dashboard() {
                             alignItems: 'center',
                             justifyContent: 'flex-start',
                             gap: '10px',
-                            background: 'transparent',
+                            background: activeTab === 'home' ? 'rgba(255, 255, 255, 0.12)' : 'transparent',
                             border: 'none',
-                            color: '#9ca3af',
+                            color: activeTab === 'home' ? '#ffffff' : '#9ca3af',
+                            fontWeight: activeTab === 'home' ? '600' : '400',
                             padding: '0.45rem 8px',
                             borderRadius: '6px',
                             cursor: 'pointer',
@@ -849,8 +1320,19 @@ export default function Dashboard() {
                             width: '100%',
                             transition: 'background 0.18s ease, color 0.18s ease',
                         }}
-                        onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
+                        onMouseEnter={(e) => {
+                            if (activeTab !== 'home') {
+                                e.currentTarget.style.color = '#ffffff';
+                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                            }
+                        }}
+                        onMouseLeave={(e) => {
+                            if (activeTab !== 'home') {
+                                e.currentTarget.style.color = '#9ca3af';
+                                e.currentTarget.style.background = 'transparent';
+                            }
+                        }}
+                        onClick={() => setActiveTab('home')}
                         title="Home"
                     >
                         <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -976,24 +1458,29 @@ export default function Dashboard() {
                                             width: '100%',
                                             padding: '0.45rem 8px',
                                             borderRadius: '6px',
-                                            background: 'transparent',
+                                            background: activeTab === 'all_files' ? '#2b2c2d' : 'transparent',
                                             border: 'none',
-                                            color: '#9ca3af',
+                                            color: activeTab === 'all_files' ? '#ffffff' : '#9ca3af',
                                             fontSize: '0.82rem',
-                                            fontWeight: '400',
+                                            fontWeight: activeTab === 'all_files' ? '600' : '400',
                                             cursor: 'pointer',
                                             whiteSpace: 'nowrap',
                                             textAlign: 'left',
                                             transition: 'background 0.15s ease, color 0.15s ease',
                                             boxSizing: 'border-box',
                                         }}
+                                        onClick={() => setActiveTab('all_files')}
                                         onMouseEnter={(e) => {
-                                            e.currentTarget.style.color = '#ffffff';
-                                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                                            if (activeTab !== 'all_files') {
+                                                e.currentTarget.style.color = '#ffffff';
+                                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                                            }
                                         }}
                                         onMouseLeave={(e) => {
-                                            e.currentTarget.style.color = '#9ca3af';
-                                            e.currentTarget.style.background = 'transparent';
+                                            if (activeTab !== 'all_files') {
+                                                e.currentTarget.style.color = '#9ca3af';
+                                                e.currentTarget.style.background = 'transparent';
+                                            }
                                         }}
                                     >
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1545,26 +2032,28 @@ export default function Dashboard() {
                     padding: '0 2rem',
                 }}>
                     {/* Left: Capsule Search input */}
-                    <div style={{ position: 'relative', width: '190px' }}>
-                        <Search size={14} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
-                        <input
-                            placeholder="Search"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            style={{
-                                width: '100%',
-                                height: '34px',
-                                paddingLeft: '32px',
-                                paddingRight: '12px',
-                                background: '#f3f4f6',
-                                border: 'none',
-                                borderRadius: '9999px',
-                                fontSize: '0.82rem',
-                                color: '#1f2937',
-                                outline: 'none',
-                            }}
-                        />
-                    </div>
+                    {(activeTab !== 'setup' && activeTab !== 'all_files') ? (
+                        <div style={{ position: 'relative', width: '190px' }}>
+                            <Search size={14} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
+                            <input
+                                placeholder="Search"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    height: '34px',
+                                    paddingLeft: '32px',
+                                    paddingRight: '12px',
+                                    background: '#f3f4f6',
+                                    border: 'none',
+                                    borderRadius: '9999px',
+                                    fontSize: '0.82rem',
+                                    color: '#1f2937',
+                                    outline: 'none',
+                                }}
+                            />
+                        </div>
+                    ) : <div />}
 
                     {/* Right: See pricing, Notifications Bell, AI Badge, + New Button */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', position: 'relative' }}>
@@ -1584,7 +2073,7 @@ export default function Dashboard() {
                             <span>See pricing</span>
                         </button>
 
-                        {/* Bell Icon with '1' badge */}
+                        {/* Bell Icon with '3' badge */}
                         <div style={{ position: 'relative' }}>
                             <button style={{ background: 'transparent', border: 'none', color: '#374151', padding: '0.35rem', cursor: 'pointer', display: 'flex', alignItems: 'center' }} title="Notifications">
                                 <Bell size={18} />
@@ -1604,7 +2093,7 @@ export default function Dashboard() {
                                 alignItems: 'center',
                                 justifyContent: 'center',
                             }}>
-                                1
+                                3
                             </span>
                         </div>
 
@@ -1691,7 +2180,8 @@ export default function Dashboard() {
                 </header>
 
                 {/* Sub-Header / Page Title Area */}
-                <div style={{ padding: '1.25rem 2rem 0.25rem 2rem', flexShrink: 0 }}>
+                {activeTab === 'pipeline' && (
+                    <div style={{ padding: '1.25rem 2rem 0.25rem 2rem', flexShrink: 0 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
                         <h1 style={{ fontSize: '1.85rem', fontWeight: '800', color: '#111827', margin: 0, letterSpacing: '-0.02em' }}>
                             Projects
@@ -1793,29 +2283,31 @@ export default function Dashboard() {
 
                     {/* Filter & View Toolbar */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.85rem', marginBottom: '0.9rem', flexShrink: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', position: 'relative' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', position: 'relative' }}>
                             {/* Sort Popover Button (⇅) */}
                             <div style={{ position: 'relative' }}>
-                                <button
-                                    style={{
-                                        background: '#eff2fe',
-                                        border: '1px solid #e0e7ff',
-                                        borderRadius: '6px',
-                                        padding: '5px 8px',
-                                        color: '#4f46e5',
-                                        cursor: 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                    }}
-                                    title="Sort projects"
-                                    onClick={() => {
-                                        setShowSortMenu(!showSortMenu);
-                                        setShowFilterMenu(false);
-                                    }}
-                                >
-                                    <ArrowUpDown size={14} color="#4f46e5" />
-                                </button>
+                                <ActionTooltip text="Sort">
+                                    <button
+                                        style={{
+                                            background: '#eff2fe',
+                                            border: '1px solid #e0e7ff',
+                                            borderRadius: '6px',
+                                            padding: '6px 8px',
+                                            color: '#4f46e5',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                        }}
+                                        aria-label="Sort projects"
+                                        onClick={() => {
+                                            setShowSortMenu(!showSortMenu);
+                                            setShowFilterMenu(false);
+                                        }}
+                                    >
+                                        <ArrowUpDown size={14} color="#4f46e5" />
+                                    </button>
+                                </ActionTooltip>
 
                                 {showSortMenu && (
                                     <div style={{
@@ -1864,26 +2356,28 @@ export default function Dashboard() {
 
                             {/* Filter Popover Button (≡) */}
                             <div style={{ position: 'relative' }}>
-                                <button
-                                    style={{
-                                        background: 'transparent',
-                                        border: 'none',
-                                        borderRadius: '6px',
-                                        padding: '5px 8px',
-                                        color: '#4b5563',
-                                        cursor: 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                    }}
-                                    title="Filter projects by stage"
-                                    onClick={() => {
-                                        setShowFilterMenu(!showFilterMenu);
-                                        setShowSortMenu(false);
-                                    }}
-                                >
-                                    <SlidersHorizontal size={14} color="#4b5563" />
-                                </button>
+                                <ActionTooltip text="Filter">
+                                    <button
+                                        style={{
+                                            background: 'transparent',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            padding: '6px 8px',
+                                            color: '#4b5563',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                        }}
+                                        aria-label="Filter projects by stage"
+                                        onClick={() => {
+                                            setShowFilterMenu(!showFilterMenu);
+                                            setShowSortMenu(false);
+                                        }}
+                                    >
+                                        <SlidersHorizontal size={14} color="#4b5563" />
+                                    </button>
+                                </ActionTooltip>
 
                                 {showFilterMenu && (
                                     <div style={{
@@ -1942,88 +2436,231 @@ export default function Dashboard() {
                                     </div>
                                 )}
                             </div>
+
+                            {/* Filter Pill: ↑ Stage moved ✕ */}
+                            {showStageMovedFilter && (
+                                <div style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '5px',
+                                    padding: '4px 10px',
+                                    borderRadius: '9999px',
+                                    border: '1px solid #bfdbfe',
+                                    background: '#f0f7ff',
+                                    color: '#2563eb',
+                                    fontSize: '0.78rem',
+                                    fontWeight: '500',
+                                }}>
+                                    <ArrowUp size={12} color="#2563eb" />
+                                    <span>{filterStage !== 'ALL' ? (STAGES.find(s => s.key === filterStage)?.label || 'Stage moved') : 'Stage moved'}</span>
+                                    <button
+                                        onClick={() => {
+                                            setShowStageMovedFilter(false);
+                                            setFilterStage('ALL');
+                                        }}
+                                        style={{
+                                            background: 'transparent',
+                                            border: 'none',
+                                            padding: 0,
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            color: '#2563eb',
+                                            marginLeft: '2px',
+                                        }}
+                                        aria-label="Remove filter"
+                                    >
+                                        <X size={12} />
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* + Add filter button */}
+                            <button
+                                onClick={() => {
+                                    setShowStageMovedFilter(true);
+                                    setShowFilterMenu(true);
+                                }}
+                                style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: '#4b5563',
+                                    fontSize: '0.8rem',
+                                    fontWeight: '500',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    padding: '4px 6px',
+                                    borderRadius: '4px',
+                                }}
+                            >
+                                <Plus size={13} color="#4b5563" /> Add filter
+                            </button>
                         </div>
 
                         {/* Right: Customize & View Mode Toggle */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-                            <button style={{
-                                background: '#f3f4f6',
-                                border: '1px solid #e5e7eb',
-                                borderRadius: '6px',
-                                padding: '6px 14px',
-                                color: '#374151',
-                                fontSize: '0.8rem',
-                                fontWeight: '600',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                cursor: 'pointer',
-                            }}>
-                                <SlidersHorizontal size={13} color="#4b5563" /> Customize
-                            </button>
+                            <ActionTooltip text="Customize">
+                                <button style={{
+                                    background: '#f3f4f6',
+                                    border: '1px solid #e5e7eb',
+                                    borderRadius: '6px',
+                                    padding: '6px 14px',
+                                    color: '#374151',
+                                    fontSize: '0.8rem',
+                                    fontWeight: '600',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    cursor: 'pointer',
+                                }}>
+                                    <SlidersHorizontal size={13} color="#4b5563" /> Customize
+                                </button>
+                            </ActionTooltip>
 
-                            <div style={{ display: 'flex', background: '#f3f4f6', borderRadius: '6px', padding: '2px', border: '1px solid #e5e7eb' }}>
-                                <button style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '4px', padding: '3px 7px', display: 'flex', alignItems: 'center', cursor: 'pointer', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }} title="Kanban Board View">
-                                    <LayoutGrid size={13} color="#374151" />
-                                </button>
-                                <button style={{ background: 'transparent', border: 'none', borderRadius: '4px', padding: '3px 7px', display: 'flex', alignItems: 'center', cursor: 'pointer' }} title="List View">
-                                    <Columns size={13} color="#9ca3af" />
-                                </button>
+                            {/* View Switcher: Table View & Board View */}
+                            <div style={{
+                                display: 'flex',
+                                background: '#f3f4f6',
+                                borderRadius: '6px',
+                                padding: '2px',
+                                border: '1px solid #e5e7eb',
+                            }}>
+                                <ActionTooltip text="Table view">
+                                    <button
+                                        onClick={() => setViewMode('table')}
+                                        style={{
+                                            background: viewMode === 'table' ? '#ffffff' : 'transparent',
+                                            border: viewMode === 'table' ? '1px solid #e5e7eb' : '1px solid transparent',
+                                            borderRadius: '4px',
+                                            padding: '4px 8px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            cursor: 'pointer',
+                                            boxShadow: viewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                                            transition: 'all 0.15s ease',
+                                        }}
+                                        aria-label="Table view"
+                                    >
+                                        <TableViewIcon size={14} color={viewMode === 'table' ? '#111827' : '#9ca3af'} />
+                                    </button>
+                                </ActionTooltip>
+
+                                <ActionTooltip text="Board view">
+                                    <button
+                                        onClick={() => setViewMode('board')}
+                                        style={{
+                                            background: viewMode === 'board' ? '#ffffff' : 'transparent',
+                                            border: viewMode === 'board' ? '1px solid #e5e7eb' : '1px solid transparent',
+                                            borderRadius: '4px',
+                                            padding: '4px 8px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            cursor: 'pointer',
+                                            boxShadow: viewMode === 'board' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                                            transition: 'all 0.15s ease',
+                                        }}
+                                        aria-label="Board view"
+                                    >
+                                        <BoardViewIcon size={14} color={viewMode === 'board' ? '#111827' : '#9ca3af'} />
+                                    </button>
+                                </ActionTooltip>
                             </div>
                         </div>
                     </div>
                 </div>
+            )}
 
-                {/* Kanban Main Workspace Grid */}
+                {/* Main Workspace (Files Screen, Home Screen, Setup Screen, Table View, or Kanban Board View) */}
                 <main style={{
                     flex: 1,
                     minHeight: 0,
                     display: 'flex',
                     flexDirection: 'column',
-                    padding: '0 2rem 1.25rem 2rem',
-                    overflowX: 'auto',
-                    overflowY: activeTab === 'pipeline' ? 'hidden' : 'auto',
+                    padding: (activeTab === 'home' || activeTab === 'setup' || activeTab === 'all_files') ? 0 : '0 2rem 1.25rem 2rem',
+                    overflowX: (activeTab === 'home' || activeTab === 'setup' || activeTab === 'all_files') ? 'hidden' : 'auto',
+                    overflowY: activeTab === 'pipeline' && viewMode === 'table' ? 'hidden' : 'auto',
+                    background: (activeTab === 'home' || activeTab === 'setup') ? '#fafbfc' : '#ffffff',
                 }}>
-                    {activeTab === 'pipeline' ? (
-                        <DndContext
-                            sensors={sensors}
-                            collisionDetection={kanbanCollisionDetection}
-                            onDragStart={handleDragStart}
-                            onDragOver={handleDragOver}
-                            onDragEnd={handleDragEnd}
-                            onDragCancel={handleDragCancel}
-                        >
-                            <div style={{
-                                display: 'flex',
-                                gap: '1rem',
-                                minWidth: 'max-content',
-                                flex: 1,
-                                height: '100%',
-                                minHeight: 0,
-                                alignItems: 'stretch',
-                            }}>
-                                {STAGES.map((stageInfo, idx) => {
-                                    const colProjects = processedProjects.filter((p) => p.stage === stageInfo.key);
-                                    const isGroupStart = idx === 0 || STAGES[idx - 1].group !== stageInfo.group;
+                    {activeTab === 'all_files' ? (
+                        <FilesScreen
+                            onOpenCreateProject={() => setShowNewProjectModal(true)}
+                            onNavigateToPipeline={() => setActiveTab('pipeline')}
+                            onSelectProject={(proj) => setActiveProjectDetail(proj)}
+                        />
+                    ) : activeTab === 'home' ? (
+                        <HomeScreen
+                            user={user}
+                            projects={projects}
+                            onNavigateToPipeline={() => setActiveTab('pipeline')}
+                            onOpenCreateProject={() => setShowNewProjectModal(true)}
+                            onOpenClientDirectory={() => setShowClientDirectory(true)}
+                            onOpenCreateInvoice={() => setShowNewProjectModal(true)}
+                        />
+                    ) : activeTab === 'setup' ? (
+                        <SetupScreen
+                            user={user}
+                            completedSteps={completedSteps}
+                            onToggleStep={handleToggleStep}
+                            onNavigateToPipeline={() => setActiveTab('pipeline')}
+                            onOpenCreateProject={() => setShowNewProjectModal(true)}
+                        />
+                    ) : activeTab === 'pipeline' ? (
+                        viewMode === 'board' ? (
+                            <TableView
+                                allProjects={projects}
+                                displayedProjects={processedProjects}
+                                onSelectProject={(proj) => setActiveProjectDetail(proj)}
+                                filterStage={filterStage}
+                                onStageSelect={(stageKey) => setFilterStage(stageKey)}
+                                selectedProjectIds={selectedProjectIds}
+                                onToggleSelectProject={toggleSelectProject}
+                                onToggleSelectAll={() => toggleSelectAll(processedProjects)}
+                            />
+                        ) : (
+                            <DndContext
+                                sensors={sensors}
+                                collisionDetection={kanbanCollisionDetection}
+                                onDragStart={handleDragStart}
+                                onDragOver={handleDragOver}
+                                onDragEnd={handleDragEnd}
+                                onDragCancel={handleDragCancel}
+                            >
+                                <div style={{
+                                    display: 'flex',
+                                    gap: '1rem',
+                                    minWidth: 'max-content',
+                                    flex: 1,
+                                    height: '100%',
+                                    minHeight: 0,
+                                    alignItems: 'stretch',
+                                }}>
+                                    {STAGES.map((stageInfo, idx) => {
+                                        const colProjects = processedProjects.filter((p) => p.stage === stageInfo.key);
+                                        const isGroupStart = idx === 0 || STAGES[idx - 1].group !== stageInfo.group;
 
-                                    return (
-                                        <Column
-                                            key={stageInfo.key}
-                                            stageInfo={stageInfo}
-                                            projects={colProjects}
-                                            onSelectProject={(proj) => setActiveProjectDetail(proj)}
-                                            isGroupStart={isGroupStart}
-                                            isTargeted={Boolean(activeId && overColumnId === stageInfo.key && activeProject?.stage !== stageInfo.key)}
-                                        />
-                                    );
-                                })}
-                            </div>
-                            <DragOverlay dropAnimation={dropAnimationConfig} zIndex={1000}>
-                                {activeProject ? (
-                                    <CardOverlay project={activeProject} />
-                                ) : null}
-                            </DragOverlay>
-                        </DndContext>
+                                        return (
+                                            <Column
+                                                key={stageInfo.key}
+                                                stageInfo={stageInfo}
+                                                projects={colProjects}
+                                                onSelectProject={(proj) => setActiveProjectDetail(proj)}
+                                                isGroupStart={isGroupStart}
+                                                isTargeted={Boolean(activeId && overColumnId === stageInfo.key && activeProject?.stage !== stageInfo.key)}
+                                            />
+                                        );
+                                    })}
+                                </div>
+                                <DragOverlay dropAnimation={dropAnimationConfig} zIndex={1000}>
+                                    {activeProject ? (
+                                        <CardOverlay project={activeProject} />
+                                    ) : null}
+                                </DragOverlay>
+                            </DndContext>
+                        )
                     ) : (
                         <div style={{ maxWidth: '1100px', margin: '0 auto', width: '100%' }}>
                             <AnalyticsPanel />
