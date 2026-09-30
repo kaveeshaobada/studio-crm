@@ -23,6 +23,8 @@ import ProjectWorkspace from '../components/ProjectWorkspace';
 import SetupScreen from '../components/SetupScreen';
 import HomeScreen from '../components/HomeScreen';
 import FilesScreen from '../components/FilesScreen';
+import InboxScreen from '../components/InboxScreen';
+import GalleriesScreen from '../components/GalleriesScreen';
 import {
     Wand2,
     Home,
@@ -801,7 +803,8 @@ export default function Dashboard() {
     const { user, logout } = useAuth();
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState('all_files'); // 'all_files' | 'home' | 'setup' | 'pipeline' | 'analytics'
+    const [activeTab, setActiveTab] = useState('galleries'); // 'galleries' | 'inbox' | 'all_files' | 'home' | 'setup' | 'pipeline' | 'analytics'
+    const [galleriesInitialCategory, setGalleriesInitialCategory] = useState('all'); // 'all' | 'templates'
     const [completedSteps, setCompletedSteps] = useState([2, 6]);
     const [viewMode, setViewMode] = useState('board'); // 'board' (Wireframe) | 'table' (Kanban)
     const [selectedProjectIds, setSelectedProjectIds] = useState(['p-proposal-test']);
@@ -1532,9 +1535,10 @@ export default function Dashboard() {
                             alignItems: 'center',
                             justifyContent: 'flex-start',
                             gap: '10px',
-                            background: 'transparent',
+                            background: activeTab === 'inbox' ? '#2b2c2d' : 'transparent',
                             border: 'none',
-                            color: '#9ca3af',
+                            color: activeTab === 'inbox' ? '#ffffff' : '#9ca3af',
+                            fontWeight: activeTab === 'inbox' ? '600' : '400',
                             padding: '0.45rem 8px',
                             borderRadius: '6px',
                             cursor: 'pointer',
@@ -1542,8 +1546,19 @@ export default function Dashboard() {
                             width: '100%',
                             transition: 'background 0.18s ease, color 0.18s ease',
                         }}
-                        onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
+                        onClick={() => setActiveTab('inbox')}
+                        onMouseEnter={(e) => {
+                            if (activeTab !== 'inbox') {
+                                e.currentTarget.style.color = '#ffffff';
+                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                            }
+                        }}
+                        onMouseLeave={(e) => {
+                            if (activeTab !== 'inbox') {
+                                e.currentTarget.style.color = '#9ca3af';
+                                e.currentTarget.style.background = 'transparent';
+                            }
+                        }}
                         title="Inbox"
                     >
                         <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -1566,9 +1581,10 @@ export default function Dashboard() {
                             alignItems: 'center',
                             justifyContent: 'flex-start',
                             gap: '10px',
-                            background: 'transparent',
+                            background: (activeTab === 'galleries' && galleriesInitialCategory !== 'templates') ? '#2b2c2d' : 'transparent',
                             border: 'none',
-                            color: '#9ca3af',
+                            color: (activeTab === 'galleries' && galleriesInitialCategory !== 'templates') ? '#ffffff' : '#9ca3af',
+                            fontWeight: (activeTab === 'galleries' && galleriesInitialCategory !== 'templates') ? '600' : '400',
                             padding: '0.45rem 8px',
                             borderRadius: '6px',
                             cursor: 'pointer',
@@ -1576,8 +1592,22 @@ export default function Dashboard() {
                             width: '100%',
                             transition: 'background 0.18s ease, color 0.18s ease',
                         }}
-                        onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
+                        onClick={() => {
+                            setActiveTab('galleries');
+                            setGalleriesInitialCategory('all');
+                        }}
+                        onMouseEnter={(e) => {
+                            if (activeTab !== 'galleries' || galleriesInitialCategory === 'templates') {
+                                e.currentTarget.style.color = '#ffffff';
+                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                            }
+                        }}
+                        onMouseLeave={(e) => {
+                            if (activeTab !== 'galleries' || galleriesInitialCategory === 'templates') {
+                                e.currentTarget.style.color = '#9ca3af';
+                                e.currentTarget.style.background = 'transparent';
+                            }
+                        }}
                         title="Galleries"
                     >
                         <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -1702,9 +1732,10 @@ export default function Dashboard() {
                             alignItems: 'center',
                             justifyContent: 'flex-start',
                             gap: '10px',
-                            background: 'transparent',
+                            background: (activeTab === 'galleries' && galleriesInitialCategory === 'templates') ? '#2b2c2d' : 'transparent',
                             border: 'none',
-                            color: '#9ca3af',
+                            color: (activeTab === 'galleries' && galleriesInitialCategory === 'templates') ? '#ffffff' : '#9ca3af',
+                            fontWeight: (activeTab === 'galleries' && galleriesInitialCategory === 'templates') ? '600' : '400',
                             padding: '0.45rem 8px',
                             borderRadius: '6px',
                             cursor: 'pointer',
@@ -1712,8 +1743,22 @@ export default function Dashboard() {
                             width: '100%',
                             transition: 'background 0.18s ease, color 0.18s ease',
                         }}
-                        onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.background = 'transparent'; }}
+                        onClick={() => {
+                            setActiveTab('galleries');
+                            setGalleriesInitialCategory('templates');
+                        }}
+                        onMouseEnter={(e) => {
+                            if (activeTab !== 'galleries' || galleriesInitialCategory !== 'templates') {
+                                e.currentTarget.style.color = '#ffffff';
+                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                            }
+                        }}
+                        onMouseLeave={(e) => {
+                            if (activeTab !== 'galleries' || galleriesInitialCategory !== 'templates') {
+                                e.currentTarget.style.color = '#9ca3af';
+                                e.currentTarget.style.background = 'transparent';
+                            }
+                        }}
                         title="Templates"
                     >
                         <div style={{ width: '24px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -2580,12 +2625,23 @@ export default function Dashboard() {
                     minHeight: 0,
                     display: 'flex',
                     flexDirection: 'column',
-                    padding: (activeTab === 'home' || activeTab === 'setup' || activeTab === 'all_files') ? 0 : '0 2rem 1.25rem 2rem',
-                    overflowX: (activeTab === 'home' || activeTab === 'setup' || activeTab === 'all_files') ? 'hidden' : 'auto',
+                    padding: (activeTab === 'home' || activeTab === 'setup' || activeTab === 'all_files' || activeTab === 'inbox' || activeTab === 'galleries') ? 0 : '0 2rem 1.25rem 2rem',
+                    overflowX: (activeTab === 'home' || activeTab === 'setup' || activeTab === 'all_files' || activeTab === 'inbox' || activeTab === 'galleries') ? 'hidden' : 'auto',
                     overflowY: activeTab === 'pipeline' && viewMode === 'table' ? 'hidden' : 'auto',
                     background: (activeTab === 'home' || activeTab === 'setup') ? '#fafbfc' : '#ffffff',
                 }}>
-                    {activeTab === 'all_files' ? (
+                    {activeTab === 'galleries' ? (
+                        <GalleriesScreen
+                            key={galleriesInitialCategory}
+                            projects={projects}
+                            initialCategory={galleriesInitialCategory}
+                            onNavigateToPipeline={() => setActiveTab('pipeline')}
+                        />
+                    ) : activeTab === 'inbox' ? (
+                        <InboxScreen
+                            onOpenClientDirectory={() => setShowClientDirectory(true)}
+                        />
+                    ) : activeTab === 'all_files' ? (
                         <FilesScreen
                             onOpenCreateProject={() => setShowNewProjectModal(true)}
                             onNavigateToPipeline={() => setActiveTab('pipeline')}
